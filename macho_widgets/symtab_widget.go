@@ -12,7 +12,8 @@ import (
 // |___|___|___|
 // |___|___|___|
 // |___|___|___|
-// |   |   |   |
+// |     |     |
+// |     |     |
 func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	symtabModel, err := NewSymtabModel(f)
 	if err != nil {
@@ -20,6 +21,8 @@ func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	}
 
 	w := widgets.NewQWidget(nil, 0)
+
+	// TODO add search box (top right)
 
 	symtab := widgets.NewQTableView(nil)
 	symtab.SetModel(symtabModel.Symtab)
@@ -31,6 +34,9 @@ func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	symtab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 	symtab.SetShowGrid(false)
 	symtab.SetAlternatingRowColors(true)
+
+	// TODO add relocations widget (bottom left)
+	// TODO add assembly widget (bottom right)
 
 	layout := widgets.NewQVBoxLayout()
 	layout.AddWidget(symtab, 0, 0)
