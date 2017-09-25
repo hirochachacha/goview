@@ -17,10 +17,14 @@ type SymtabModel struct {
 }
 
 func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
-	m := new(SymtabModel)
+	return &SymtabModel{
+		Symtab: newSymtabModel(f),
+		Reltab: newReltabModel(f),
+	}, nil
+}
 
+func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
-
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
 	}
@@ -151,9 +155,14 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 		return core.NewQVariant14(val)
 	})
 
-	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
+	return symtab
+}
 
-	m.Symtab = symtab
+func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+	var syms []macho.Symbol
+	if f.Symtab != nil {
+		syms = f.Symtab.Syms
+	}
 
 	type relocInfo struct {
 		*macho.Reloc
@@ -208,7 +217,9 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 		}
 	}
 
-	m.Reltab = func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
+
+	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
 		if !index.IsValid() {
 			return nil
 		}
@@ -292,8 +303,6 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 		}
 		return nil
 	}
-
-	return m, nil
 }
 
 func relocString(typ uint8, cpu macho.Cpu) string {
