@@ -34,10 +34,10 @@ func NewStructWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	table.HorizontalHeader().SetStretchLastSection(true)
 	table.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
 	table.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
-	table.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
-	table.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 	table.SetShowGrid(false)
 	table.SetAlternatingRowColors(true)
+	table.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
+	table.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
 	tree.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
 		table.SetModel(nil)

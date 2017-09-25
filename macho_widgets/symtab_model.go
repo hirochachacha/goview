@@ -12,15 +12,26 @@ import (
 )
 
 type SymtabModel struct {
-	Symtab core.QAbstractItemModel_ITF
-	Reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	Symtab    core.QAbstractItemModel_ITF
+	RawReltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
 func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
+	symtab := core.NewQSortFilterProxyModel(nil)
+	symtab.SetSourceModel(newSymtabModel(f))
+
 	return &SymtabModel{
-		Symtab: newSymtabModel(f),
-		Reltab: newReltabModel(f),
+		Symtab:    symtab,
+		RawReltab: newReltabModel(f),
 	}, nil
+}
+
+func (m *SymtabModel) SetFilter(s string) {
+	m.Symtab.(*core.QSortFilterProxyModel).SetFilterRegExp2(s)
+}
+
+func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+	return m.RawReltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
 func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
