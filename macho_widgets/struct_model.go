@@ -26,7 +26,6 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 		for i, es := range data {
 			for j, e := range es {
 				table.SetItem(i, j, gui.NewQStandardItem2(e))
-				table.SetItem(i, j, gui.NewQStandardItem2(e))
 			}
 		}
 		m.Tables = append(m.Tables, table)
@@ -172,7 +171,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 
 			loads.AppendRow2(segItem)
 		default:
-			item := gui.NewQStandardItem2("<Unsupported>")
+			item := gui.NewQStandardItem2("?")
 			item.SetData(setItemModel([][]string{
 				{"Command", LoadCommand(cmd).String()},
 				{"Command Size", fmt.Sprint(cmdsize)},
