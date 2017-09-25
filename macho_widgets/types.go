@@ -1,4 +1,4 @@
-//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,LoadCommand,ReferenceType -output macho_types_string.go
+//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,LoadCommand,ReferenceType -output types_string.go
 package macho_widgets
 
 type CpuType uint32
