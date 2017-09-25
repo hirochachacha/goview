@@ -3,13 +3,17 @@ package macho_widgets
 import (
 	"debug/macho"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 
 	"github.com/therecipe/qt/core"
+	"github.com/therecipe/qt/gui"
 )
 
 type SymtabModel struct {
 	Symtab core.QAbstractItemModel_ITF
+	Reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
 func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
@@ -23,14 +27,14 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 
 	header := []string{"Name", "Type", "Section", "Description", "Value"}
 
-	qtab := core.NewQAbstractTableModel(nil)
-	qtab.ConnectRowCount(func(parent *core.QModelIndex) int {
+	symtab := core.NewQAbstractTableModel(nil)
+	symtab.ConnectRowCount(func(parent *core.QModelIndex) int {
 		return len(syms)
 	})
-	qtab.ConnectColumnCount(func(parent *core.QModelIndex) int {
-		return 5
+	symtab.ConnectColumnCount(func(parent *core.QModelIndex) int {
+		return len(header)
 	})
-	qtab.ConnectHeaderData(func(section int, orientation core.Qt__Orientation, role int) *core.QVariant {
+	symtab.ConnectHeaderData(func(section int, orientation core.Qt__Orientation, role int) *core.QVariant {
 		if role == int(core.Qt__DisplayRole) {
 			var val string
 			switch orientation {
@@ -43,7 +47,7 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 		}
 		return core.NewQVariant()
 	})
-	qtab.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
+	symtab.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
 		if role != int(core.Qt__DisplayRole) {
 			return core.NewQVariant()
 		}
@@ -137,6 +141,7 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 						}
 					}
 				}
+				// TODO
 				val = strings.Join(vals, "\t")
 			}
 		case 4:
@@ -146,7 +151,176 @@ func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
 		return core.NewQVariant14(val)
 	})
 
-	m.Symtab = qtab
+	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
+
+	m.Symtab = symtab
+
+	type relocInfo struct {
+		*macho.Reloc
+		Sect *macho.Section
+	}
+
+	type symInfo struct {
+		Relocs    []*relocInfo
+		SameAddrs []*macho.Symbol
+	}
+
+	symAddrInfo := make(map[uint64]*symInfo)
+
+	ssyms := make([]*macho.Symbol, 0, len(syms))
+	for i := range syms {
+		sym := &syms[i]
+		if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+			ssyms = append(ssyms, sym)
+		}
+	}
+	sort.Sort(byAddr(ssyms))
+	if len(ssyms) != 0 {
+		for _, sect := range f.Sections {
+			for i := range sect.Relocs {
+				r := &sect.Relocs[i]
+				k := sort.Search(len(ssyms), func(i int) bool {
+					return ssyms[i].Value > sect.Addr+uint64(r.Addr)
+				})
+				if k == 0 {
+					// TODO warning
+					continue
+				}
+				sym := ssyms[k-1]
+				if k == len(ssyms) {
+					tsect := f.Sections[sym.Sect-1]
+					if sect.Addr+uint64(r.Addr) > tsect.Addr+tsect.Size {
+						// TODO handle unbinded relocations
+						continue
+					}
+				}
+				addr := sym.Value
+				info := symAddrInfo[addr]
+				if info == nil {
+					info = new(symInfo)
+					for k := k - 1; k >= 0 && ssyms[k].Value == addr; k-- {
+						info.SameAddrs = append(info.SameAddrs, ssyms[k])
+					}
+					symAddrInfo[addr] = info
+				}
+				info.Relocs = append(info.Relocs, &relocInfo{Reloc: r, Sect: sect})
+			}
+		}
+	}
+
+	m.Reltab = func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+		if !index.IsValid() {
+			return nil
+		}
+		row := index.Row()
+		if 0 <= row && row < len(syms) {
+			if reltab, ok := reltabCache[row]; ok {
+				return reltab
+			}
+
+			sym := &syms[row]
+
+			reltab := gui.NewQStandardItemModel(nil)
+			reltab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
+			reltab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
+			reltab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Type"))
+			reltab.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Length"))
+			reltab.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
+			reltab.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
+			reltab.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
+			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
+					for i, r := range symInfo.Relocs {
+						reltab.SetItem(i, 0, gui.NewQStandardItem2(fmt.Sprintf("%#x+%#x (%s,%s)", r.Addr, r.Sect.Addr, r.Sect.Seg, r.Sect.Name)))
+						switch {
+						case r.Scattered:
+							reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
+						case r.Extern:
+							if len(syms) < math.MaxUint32 && 0 <= r.Value && r.Value < uint32(len(syms)) {
+								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (%s)", r.Value, syms[r.Value].Name)))
+							} else {
+								// TODO warning
+								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
+							}
+						default:
+							if len(f.Sections) < math.MaxUint32 && 0 <= r.Value-1 && r.Value-1 < uint32(len(f.Sections)) {
+								sect := f.Sections[r.Value-1]
+								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (%s,%s)", r.Value, sect.Seg, sect.Name)))
+							} else {
+								// TODO warning
+								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
+							}
+						}
+						switch f.Cpu {
+						case macho.Cpu386:
+							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeGeneric(r.Type))))
+						case macho.CpuAmd64:
+							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeX86_64(r.Type))))
+						case macho.CpuArm:
+							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeARM(r.Type))))
+						case macho.CpuArm | 0x01000000:
+							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeARM64(r.Type))))
+						default:
+							// TODO warning
+							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Type)))
+						}
+						switch r.Len {
+						case 0:
+							reltab.SetItem(i, 3, gui.NewQStandardItem2("0 (byte)"))
+						case 1:
+							reltab.SetItem(i, 3, gui.NewQStandardItem2("1 (word)"))
+						case 2:
+							reltab.SetItem(i, 3, gui.NewQStandardItem2("2 (long)"))
+						case 3:
+							reltab.SetItem(i, 3, gui.NewQStandardItem2("3 (quad)"))
+						default:
+							panic("unreachable")
+						}
+						reltab.SetItem(i, 4, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)))
+						if r.Scattered {
+							reltab.SetItem(i, 6, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)))
+						} else {
+							reltab.SetItem(i, 5, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)))
+						}
+					}
+				}
+
+				reltabCache[row] = reltab
+
+				return reltab
+			}
+		}
+		return nil
+	}
 
 	return m, nil
+}
+
+func relocString(typ uint8, cpu macho.Cpu) string {
+	switch cpu {
+	case macho.Cpu386:
+		return macho.RelocTypeGeneric(typ).String()
+	case macho.CpuAmd64:
+		return macho.RelocTypeX86_64(typ).String()
+	case macho.CpuArm:
+		return macho.RelocTypeARM(typ).String()
+	case macho.CpuArm | 0x01000000:
+		return macho.RelocTypeARM64(typ).String()
+	default:
+		return "?"
+	}
+}
+
+type byAddr []*macho.Symbol
+
+func (v byAddr) Len() int {
+	return len(v)
+}
+
+func (v byAddr) Less(i, j int) bool {
+	return v[i].Value < v[i].Value
+}
+
+func (v byAddr) Swap(i, j int) {
+	v[i], v[i] = v[j], v[i]
 }
