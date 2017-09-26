@@ -47,7 +47,7 @@ func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	reltab.SetAlternatingRowColors(true)
 	reltab.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
 	reltab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
-	// reltab.SetSortingEnabled(true) // too slow
+	reltab.SetSortingEnabled(true)
 
 	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
 		reltab.SetModel(symtabModel.Reltab(current))

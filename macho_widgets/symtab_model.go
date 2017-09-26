@@ -181,6 +181,7 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 	}
 
 	type symInfo struct {
+		Symbol    *macho.Symbol
 		Relocs    []*relocInfo
 		SameAddrs []*macho.Symbol
 	}
@@ -206,18 +207,19 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 					// TODO warning
 					continue
 				}
-				sym := ssyms[k-1]
+				tsym := ssyms[k-1]
 				if k == len(ssyms) {
-					tsect := f.Sections[sym.Sect-1]
+					tsect := f.Sections[tsym.Sect-1]
 					if sect.Addr+uint64(r.Addr) > tsect.Addr+tsect.Size {
 						// TODO handle unbinded relocations
 						continue
 					}
 				}
-				addr := sym.Value
+				addr := tsym.Value
 				info := symAddrInfo[addr]
 				if info == nil {
 					info = new(symInfo)
+					info.Symbol = tsym
 					for k := k - 1; k >= 0 && ssyms[k].Value == addr; k-- {
 						info.SameAddrs = append(info.SameAddrs, ssyms[k])
 					}
@@ -242,15 +244,16 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 
 			sym := &syms[row]
 
-			reltab := gui.NewQStandardItemModel(nil)
-			reltab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
-			reltab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
-			reltab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Type"))
-			reltab.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Length"))
-			reltab.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
-			reltab.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
-			reltab.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
 			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+				reltab := gui.NewQStandardItemModel(nil)
+				reltab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
+				reltab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
+				reltab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Type"))
+				reltab.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Length"))
+				reltab.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
+				reltab.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
+				reltab.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
+
 				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
 					for i, r := range symInfo.Relocs {
 						reltab.SetItem(i, 0, gui.NewQStandardItem2(fmt.Sprintf("%#x+%#x (%s,%s)", r.Addr, r.Sect.Addr, r.Sect.Seg, r.Sect.Name)))
@@ -307,9 +310,12 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 					}
 				}
 
-				reltabCache[row] = reltab
+				proxy := core.NewQSortFilterProxyModel(nil)
+				proxy.SetSourceModel(reltab)
 
-				return reltab
+				reltabCache[row] = proxy
+
+				return proxy
 			}
 		}
 		return nil
@@ -338,9 +344,9 @@ func (v byAddr) Len() int {
 }
 
 func (v byAddr) Less(i, j int) bool {
-	return v[i].Value < v[i].Value
+	return v[i].Value < v[j].Value
 }
 
 func (v byAddr) Swap(i, j int) {
-	v[i], v[i] = v[j], v[i]
+	v[i], v[j] = v[j], v[i]
 }
