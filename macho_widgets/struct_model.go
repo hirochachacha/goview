@@ -40,9 +40,9 @@ func NewStructModel(f *macho.File) *StructModel {
 	file := gui.NewQStandardItem2(fileString(f))
 	file.SetData(setItemModel([][]string{
 		{"Magic Number", fmt.Sprintf("%#x (%s)", f.Magic, Magic(f.Magic))},
-		{"CPU Type", fmt.Sprintf("%#x (%s)", f.Cpu, CpuType(f.Cpu))},
+		{"CPU Type", fmt.Sprintf("%#x (%s)", uint32(f.Cpu), CpuType(f.Cpu))},
 		{"CPU Subtype", cpusubString(f.Cpu, f.SubCpu)},
-		{"File Type", fmt.Sprintf("%#x (%s)", f.Type, FileType(f.Type))},
+		{"File Type", fmt.Sprintf("%#x (%s)", uint32(f.Type), FileType(f.Type))},
 		{"Number of Load Commands", fmt.Sprint(f.Ncmd)},
 		{"Size of Load Commands", fmt.Sprint(f.Cmdsz)},
 		{"File Flags", fileFlagsString(f.Flags)},
