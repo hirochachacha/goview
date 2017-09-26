@@ -14,13 +14,8 @@ import (
 // |___|___|___|
 // |           |
 // |           |
-func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
-	symtabModel, err := NewSymtabModel(f)
-	if err != nil {
-		return nil, err
-	}
-
-	w := widgets.NewQWidget(nil, 0)
+func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
+	symtabModel := NewSymtabModel(f)
 
 	search := widgets.NewQLineEdit(nil)
 	search.SetPlaceholderText("Search ...")
@@ -64,6 +59,11 @@ func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 		vlayout.AddWidget(search, 0, 0)
 		vlayout.AddWidget(symtab, 0, 0)
 		symtabGroup.SetLayout(vlayout)
+		symtabGroup.SetFlat(true)
+	}
+
+	if f.Type != macho.TypeObj {
+		return symtabGroup
 	}
 
 	reltabGroup := widgets.NewQGroupBox2("Relocations", nil)
@@ -71,15 +71,17 @@ func NewSymtabWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 		vlayout := widgets.NewQVBoxLayout()
 		vlayout.AddWidget(reltab, 0, 0)
 		reltabGroup.SetLayout(vlayout)
+		reltabGroup.SetFlat(true)
 	}
 
 	sp := widgets.NewQSplitter2(core.Qt__Vertical, nil)
 	sp.AddWidget(symtabGroup)
 	sp.AddWidget(reltabGroup)
 
+	w := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQVBoxLayout()
 	layout.AddWidget(sp, 0, 0)
 	w.SetLayout(layout)
 
-	return w, nil
+	return w
 }

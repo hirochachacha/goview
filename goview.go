@@ -67,10 +67,11 @@ func NewMainWindow(args []string) (*MainWindow, error) {
 		path = args[1]
 	}
 
-	cw, err := NewCentralWidget(path)
+	f, err := macho.Open(path)
 	if err != nil {
 		return nil, err
 	}
+	cw := macho_widgets.NewCentralWidget(f)
 
 	mw.addMenu()
 	mw.SetWindowTitle(filepath.Base(path))
@@ -91,12 +92,14 @@ func (mw *MainWindow) addMenu() {
 			msg.ShowMessage(err.Error())
 			return
 		}
-		cw, err := NewCentralWidget(path)
+		f, err := macho.Open(path)
 		if err != nil {
+			f.Close()
 			msg := widgets.NewQErrorMessage(mw.QMainWindow)
 			msg.ShowMessage(err.Error())
 			return
 		}
+		cw := macho_widgets.NewCentralWidget(f)
 		mw := &MainWindow{widgets.NewQMainWindow(nil, 0)}
 		mw.addMenu()
 		mw.SetWindowTitle(filepath.Base(path))
@@ -120,32 +123,4 @@ func (mw *MainWindow) openFile() (string, error) {
 		return "", errors.New("openFile failed")
 	}
 	return files[0], nil
-}
-
-func NewCentralWidget(path string) (widgets.QWidget_ITF, error) {
-	tab := widgets.NewQTabWidget(nil)
-
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	mf, err := macho.NewFile(f)
-	if err != nil {
-		return nil, err
-	}
-
-	strct, err := macho_widgets.NewStructWidget(mf)
-	if err != nil {
-		return nil, err
-	}
-
-	symtab, err := macho_widgets.NewSymtabWidget(mf)
-	if err != nil {
-		return nil, err
-	}
-
-	tab.AddTab(strct, "Struct")
-	tab.AddTab(symtab, "Symtab")
-
-	return tab, nil
 }

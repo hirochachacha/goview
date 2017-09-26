@@ -11,27 +11,29 @@ import (
 )
 
 type StructModel struct {
-	Tree   core.QAbstractItemModel_ITF
-	Tables []core.QAbstractItemModel_ITF
+	Tree     core.QAbstractItemModel_ITF
+	attrTabs []core.QAbstractItemModel_ITF
 }
 
-func NewStructModel(f *macho.File) (*StructModel, error) {
+const StructItemRole = int(core.Qt__UserRole) + 1
+
+func NewStructModel(f *macho.File) *StructModel {
 	m := new(StructModel)
 
-	tree := gui.NewQStandardItemModel(nil)
-
 	setItemModel := func(data [][]string) *core.QVariant {
-		table := gui.NewQStandardItemModel(nil)
-		table.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Description"))
-		table.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
+		tab := gui.NewQStandardItemModel(nil)
+		tab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Description"))
+		tab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
 		for i, es := range data {
 			for j, e := range es {
-				table.SetItem(i, j, gui.NewQStandardItem2(e))
+				tab.SetItem(i, j, gui.NewQStandardItem2(e))
 			}
 		}
-		m.Tables = append(m.Tables, table)
-		return core.NewQVariant7(len(m.Tables))
+		m.attrTabs = append(m.attrTabs, tab)
+		return core.NewQVariant7(len(m.attrTabs))
 	}
+
+	tree := gui.NewQStandardItemModel(nil)
 
 	root := tree.InvisibleRootItem()
 
@@ -193,7 +195,16 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 
 	m.Tree = tree
 
-	return m, nil
+	return m
+}
+
+func (m *StructModel) AttrTab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+	if val := index.Data(StructItemRole); val.IsValid() {
+		if i := val.ToInt(false); 0 < i && i <= len(m.attrTabs) {
+			return m.attrTabs[i-1]
+		}
+	}
+	return nil
 }
 
 func fileString(f *macho.File) string {

@@ -3,27 +3,29 @@ package macho_widgets
 import (
 	"debug/macho"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
 	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/gui"
 )
 
 type SymtabModel struct {
-	Symtab    core.QAbstractItemModel_ITF
-	RawReltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	Symtab core.QAbstractItemModel_ITF
+	reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
-func NewSymtabModel(f *macho.File) (*SymtabModel, error) {
+func NewSymtabModel(f *macho.File) *SymtabModel {
+	m := new(SymtabModel)
+
 	symtab := core.NewQSortFilterProxyModel(nil)
-	symtab.SetSourceModel(newSymtabModel(f))
+	symtab.SetSourceModel(m.newSymtabModel(f))
+
+	reltab := m.newReltabModel(f)
 
 	return &SymtabModel{
-		Symtab:    symtab,
-		RawReltab: newReltabModel(f),
-	}, nil
+		Symtab: symtab,
+		reltab: reltab,
+	}
 }
 
 func (m *SymtabModel) SetFilter(s string) {
@@ -31,10 +33,10 @@ func (m *SymtabModel) SetFilter(s string) {
 }
 
 func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-	return m.RawReltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
+	return m.reltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
-func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
@@ -98,20 +100,16 @@ func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 	return symtab
 }
 
-func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
 	}
 
-	type relocInfo struct {
-		*macho.Reloc
-		Sect *macho.Section
-	}
-
 	type symInfo struct {
 		Symbol    *macho.Symbol
-		Relocs    []*relocInfo
+		Relocs    []macho.Reloc
+		Sections  []*macho.Section
 		SameAddrs []*macho.Symbol
 	}
 
@@ -128,7 +126,7 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 	if len(ssyms) != 0 {
 		for _, sect := range f.Sections {
 			for i := range sect.Relocs {
-				r := &sect.Relocs[i]
+				r := sect.Relocs[i]
 				k := sort.Search(len(ssyms), func(i int) bool {
 					return ssyms[i].Value > sect.Addr+uint64(r.Addr)
 				})
@@ -154,7 +152,8 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 					}
 					symAddrInfo[addr] = info
 				}
-				info.Relocs = append(info.Relocs, &relocInfo{Reloc: r, Sect: sect})
+				info.Relocs = append(info.Relocs, r)
+				info.Sections = append(info.Sections, sect)
 			}
 		}
 	}
@@ -171,68 +170,22 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 				return reltab
 			}
 
+			var reltab core.QAbstractItemModel_ITF
+
 			sym := &syms[row]
 
 			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-				reltab := gui.NewQStandardItemModel(nil)
-				reltab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
-				reltab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
-				reltab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Type"))
-				reltab.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Length"))
-				reltab.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
-				reltab.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
-				reltab.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
-
 				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-					for i, r := range symInfo.Relocs {
-						reltab.SetItem(i, 0, gui.NewQStandardItem2(fmt.Sprintf("%#x+%#x (%s,%s)", r.Addr, r.Sect.Addr, r.Sect.Seg, r.Sect.Name)))
-						switch {
-						case r.Scattered:
-							reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
-						case r.Extern:
-							if len(syms) < math.MaxUint32 && 0 <= r.Value && r.Value < uint32(len(syms)) {
-								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (%s)", r.Value, syms[r.Value].Name)))
-							} else {
-								// TODO warning
-								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
-							}
-						default:
-							if len(f.Sections) < math.MaxUint32 && 0 <= r.Value-1 && r.Value-1 < uint32(len(f.Sections)) {
-								sect := f.Sections[r.Value-1]
-								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (%s,%s)", r.Value, sect.Seg, sect.Name)))
-							} else {
-								// TODO warning
-								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
-							}
-						}
-						reltab.SetItem(i, 2, gui.NewQStandardItem2(relocString(r.Type, f.Cpu)))
-						switch r.Len {
-						case 0:
-							reltab.SetItem(i, 3, gui.NewQStandardItem2("0 (byte)"))
-						case 1:
-							reltab.SetItem(i, 3, gui.NewQStandardItem2("1 (word)"))
-						case 2:
-							reltab.SetItem(i, 3, gui.NewQStandardItem2("2 (long)"))
-						case 3:
-							reltab.SetItem(i, 3, gui.NewQStandardItem2("3 (quad)"))
-						default:
-							panic("unreachable")
-						}
-						reltab.SetItem(i, 4, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)))
-						if r.Scattered {
-							reltab.SetItem(i, 6, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)))
-						} else {
-							reltab.SetItem(i, 5, gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)))
-						}
+					reltab = newReltabModel(f, symInfo.Relocs, symInfo.Sections)
+					if reltab != nil {
+						proxy := core.NewQSortFilterProxyModel(nil)
+						proxy.SetSourceModel(reltab)
+						reltab = proxy
 					}
 				}
+				reltabCache[row] = reltab
 
-				proxy := core.NewQSortFilterProxyModel(nil)
-				proxy.SetSourceModel(reltab)
-
-				reltabCache[row] = proxy
-
-				return proxy
+				return reltab
 			}
 		}
 		return nil
@@ -361,22 +314,6 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 		return "0x0"
 	}
 	return strings.Join(vals, "\n")
-}
-
-func relocString(r uint8, cpu macho.Cpu) string {
-	switch cpu {
-	case macho.Cpu386:
-		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeGeneric(r))
-	case macho.CpuAmd64:
-		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeX86_64(r))
-	case macho.CpuArm:
-		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeARM(r))
-	case macho.CpuArm | 0x01000000:
-		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeARM64(r))
-	default:
-		// TODO warning
-		return fmt.Sprintf("%#x (?)", r)
-	}
 }
 
 type byAddr []*macho.Symbol
