@@ -29,6 +29,8 @@ type (
 )
 
 const (
+	CPU_SUBTYPE_LIB64 = 0x80000000
+
 	CPU_SUBTYPE_X86_ALL   CpuSubtypeX86 = 0x3
 	CPU_SUBTYPE_X86_ARCH1 CpuSubtypeX86 = 0x4
 
@@ -127,20 +129,6 @@ const (
 	MH_APP_EXTENSION_SAFE      FileFlag = 0x02000000
 )
 
-func (f FileFlag) String() string {
-	var s string
-	for i := 0; f != 0; i++ {
-		if f&1 != 0 {
-			s += "|" + fileFlagStrings[i]
-		}
-		f >>= 1
-	}
-	if len(s) > 0 {
-		s = s[1:]
-	}
-	return s
-}
-
 var fileFlagStrings = [...]string{
 	"MH_NOUNDEFS",
 	"MH_INCRLINK",
@@ -184,20 +172,6 @@ var segmentFlagStrings = [...]string{
 	"SG_FVMLIB",
 	"SG_NORELOC",
 	"SG_PROTECTED_VERSION_1",
-}
-
-func (f SegmentFlag) String() string {
-	var s string
-	for i := 0; f != 0; i++ {
-		if f&1 != 0 {
-			s += "|" + segmentFlagStrings[i]
-		}
-		f >>= 1
-	}
-	if len(s) > 0 {
-		s = s[1:]
-	}
-	return s
 }
 
 type LoadCommand uint32
@@ -271,36 +245,6 @@ const (
 )
 
 type SymbolType uint8
-
-func (typ SymbolType) String() string {
-	var s string
-	switch {
-	case typ&N_STAB != 0:
-		s = "N_STAB"
-	case typ&N_TYPE != 0:
-		switch typ & N_TYPE {
-		case N_ABS:
-			s = "N_ABS"
-		case N_SECT:
-			s = "N_SECT"
-		case N_PBUD:
-			s = "N_PBUD"
-		case N_INDR:
-			s = "N_INDR"
-		default:
-			s = "?"
-		}
-	default:
-		s = "N_UNDF"
-	}
-	if typ&N_PEXT != 0 {
-		s += "|N_PEXT"
-	}
-	if typ&N_EXT != 0 {
-		s += "|N_EXT"
-	}
-	return s
-}
 
 type ReferenceType uint8
 

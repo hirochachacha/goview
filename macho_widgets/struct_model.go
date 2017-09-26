@@ -3,6 +3,7 @@ package macho_widgets
 import (
 	"debug/macho"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/therecipe/qt/core"
@@ -36,13 +37,13 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 
 	file := gui.NewQStandardItem2(fileString(f))
 	file.SetData(setItemModel([][]string{
-		{"Magic Number", Magic(f.Magic).String()},
-		{"CPU Type", CpuType(f.Cpu).String()},
+		{"Magic Number", fmt.Sprintf("%#x (%s)", f.Magic, Magic(f.Magic))},
+		{"CPU Type", fmt.Sprintf("%#x (%s)", f.Cpu, CpuType(f.Cpu))},
 		{"CPU Subtype", cpusubString(f.Cpu, f.SubCpu)},
-		{"File Type", FileType(f.Type).String()},
+		{"File Type", fmt.Sprintf("%#x (%s)", f.Type, FileType(f.Type))},
 		{"Number of Load Commands", fmt.Sprint(f.Ncmd)},
 		{"Size of Load Commands", fmt.Sprint(f.Cmdsz)},
-		{"File Flags", FileFlag(f.Flags).String()},
+		{"File Flags", fileFlagsString(f.Flags)},
 	}), StructItemRole)
 
 	sectDone := make(map[*macho.Section]bool)
@@ -50,14 +51,14 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 	loads := gui.NewQStandardItem2(fmt.Sprintf("Load Commands (%d)", len(f.Loads)))
 	for _, lc := range f.Loads {
 		raw := lc.Raw()
-		cmd := macho.LoadCmd(f.ByteOrder.Uint32(raw[0:4]))
+		cmd := f.ByteOrder.Uint32(raw[0:4])
 		cmdsize := f.ByteOrder.Uint32(raw[4:8])
 
 		switch lc := lc.(type) {
 		case *macho.Rpath:
 			item := gui.NewQStandardItem2("LC_RPATH")
 			item.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 				{"RPath", lc.Path},
 			}), StructItemRole)
@@ -65,7 +66,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 		case *macho.Dylib:
 			item := gui.NewQStandardItem2(fmt.Sprintf("LC_LOAD_DYLIB (%s)", lc.Name))
 			item.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 				{"Name", lc.Name},
 				{"Timestamp", time.Unix(int64(lc.Time), 0).String()},
@@ -76,7 +77,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 		case *macho.Symtab:
 			item := gui.NewQStandardItem2("LC_SYMTAB")
 			item.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 				{"Symbol Table Offset", fmt.Sprint(lc.SymtabCmd.Symoff)},
 				{"Number of Symbols", fmt.Sprint(lc.SymtabCmd.Nsyms)},
@@ -87,7 +88,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 		case *macho.Dysymtab:
 			item := gui.NewQStandardItem2("LC_DYSYMTAB")
 			item.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 				{"Index of The First Local Symbol", fmt.Sprint(lc.DysymtabCmd.Ilocalsym)},
 				{"Number of Local Symbols", fmt.Sprint(lc.DysymtabCmd.Nlocalsym)},
@@ -121,7 +122,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 			}
 
 			segItem.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 				{"Name", lc.Name},
 				{"VM Address", fmt.Sprintf("%#x", lc.Addr)},
@@ -131,7 +132,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 				{"Maximum VM Protections", fmt.Sprintf("%#o", lc.Maxprot)},
 				{"Initial VM Protections", fmt.Sprintf("%#o", lc.Prot)},
 				{"Number of Sections", fmt.Sprint(lc.Nsect)},
-				{"Segment Flags", SegmentFlag(lc.Flag).String()},
+				{"Segment Flags", segmentFlagsString(lc.Flag)},
 			}), StructItemRole)
 
 			nsect := lc.Nsect
@@ -156,7 +157,7 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 						{"Address", fmt.Sprintf("%#x", sect.Addr)},
 						{"Size", fmt.Sprint(sect.Size)},
 						{"Offset", fmt.Sprint(sect.Offset)},
-						{"Alignment", fmt.Sprint(sect.Align)},
+						{"Alignment", fmt.Sprintf("%d (%d)", sect.Align, 1<<sect.Align)},
 						{"Offset to the first Relocation", fmt.Sprint(sect.Reloff)},
 						{"Number of Relocation entries", fmt.Sprint(sect.Nreloc)},
 					}), StructItemRole)
@@ -171,9 +172,9 @@ func NewStructModel(f *macho.File) (*StructModel, error) {
 
 			loads.AppendRow2(segItem)
 		default:
-			item := gui.NewQStandardItem2("?")
+			item := gui.NewQStandardItem2(fmt.Sprintf("%s (?)", LoadCommand(cmd)))
 			item.SetData(setItemModel([][]string{
-				{"Command", LoadCommand(cmd).String()},
+				{"Command", fmt.Sprintf("%#x (%s)", cmd, LoadCommand(cmd))},
 				{"Command Size", fmt.Sprint(cmdsize)},
 			}), StructItemRole)
 			loads.AppendRow2(item)
@@ -234,22 +235,65 @@ func fileString(f *macho.File) string {
 func cpusubString(cpu macho.Cpu, cpusub uint32) string {
 	switch cpu {
 	case macho.Cpu386:
-		return CpuSubtypeX86(cpusub).String()
+		return fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypeX86(cpusub))
 	case macho.CpuAmd64:
-		return CpuSubtypeX86_64(cpusub).String()
+		var s string
+		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
+			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
+			cpusub ^= CPU_SUBTYPE_LIB64
+		}
+		return s + fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypeX86_64(cpusub))
 	case macho.CpuArm:
-		return CpuSubtypeARM(cpusub).String()
+		return fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypeARM(cpusub))
 	case macho.CpuArm | 0x01000000:
-		return CpuSubtypeARM64(cpusub).String()
+		var s string
+		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
+			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
+			cpusub ^= CPU_SUBTYPE_LIB64
+		}
+		return s + fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypeARM64(cpusub))
 	case macho.CpuPpc:
-		return CpuSubtypePPC(cpusub).String()
+		return fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypePPC(cpusub))
 	case macho.CpuPpc64:
-		return CpuSubtypePPC(cpusub).String()
+		var s string
+		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
+			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
+			cpusub ^= CPU_SUBTYPE_LIB64
+		}
+		return s + fmt.Sprintf("%#x (%s)", cpusub, CpuSubtypePPC(cpusub))
 	default:
 		return "?"
 	}
 }
 
+func fileFlagsString(f uint32) string {
+	var flags []string
+	for i := 0; f != 0; i++ {
+		if f&1 != 0 {
+			flags = append(flags, fmt.Sprintf("%#x (%s)", 1<<uint(i), fileFlagStrings[i]))
+		}
+		f >>= 1
+	}
+	if len(flags) == 0 {
+		return "0x0"
+	}
+	return strings.Join(flags, "\n")
+}
+
 func versionString(v uint32) string {
-	return fmt.Sprintf("%d.%d.%d", v>>16, (v>>8)&0xff, v&0xff)
+	return fmt.Sprintf("%#x (%d.%d.%d)", v, v>>16, (v>>8)&0xff, v&0xff)
+}
+
+func segmentFlagsString(f uint32) string {
+	var flags []string
+	for i := 0; f != 0; i++ {
+		if f&1 != 0 {
+			flags = append(flags, fmt.Sprintf("%#x (%s)", 1<<uint(i), segmentFlagStrings[i]))
+		}
+		f >>= 1
+	}
+	if len(flags) == 0 {
+		return "0x0"
+	}
+	return strings.Join(flags, "\n")
 }

@@ -31,6 +31,7 @@ func NewStructWidget(f *macho.File) (widgets.QWidget_ITF, error) {
 	table := widgets.NewQTableView(nil)
 	table.VerticalHeader().SetVisible(false)
 	table.VerticalHeader().SetDefaultSectionSize(20)
+	table.VerticalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
 	table.HorizontalHeader().SetStretchLastSection(true)
 	table.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
 	table.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)

@@ -33,6 +33,11 @@ func main() {
 	app.SetApplicationName("GoView")
 	app.SetApplicationVersion("0.0.1")
 
+	// use monospace font
+	font := gui.NewQFont2("Courier", -1, -1, false)
+	font.SetStyleHint(gui.QFont__Monospace, 0)
+	app.SetFont(font, "")
+
 	mw, err := NewMainWindow(os.Args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

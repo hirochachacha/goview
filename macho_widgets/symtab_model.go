@@ -67,7 +67,7 @@ func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 			return core.NewQVariant()
 		}
 
-		sym := syms[index.Row()]
+		sym := &syms[index.Row()]
 
 		var val string
 
@@ -75,7 +75,7 @@ func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 		case 0:
 			val = sym.Name
 		case 1:
-			val = fmt.Sprintf("%#x (%s)", sym.Type, SymbolType(sym.Type))
+			val = symTypeString(sym.Type)
 		case 2:
 			switch {
 			case sym.Sect == 0:
@@ -87,78 +87,7 @@ func newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
 				val = fmt.Sprintf("%d (?)", sym.Sect)
 			}
 		case 3:
-			if sym.Type&N_STAB != 0 {
-				val = fmt.Sprintf("%#x", sym.Desc)
-			} else {
-				var vals []string
-				vals = append(vals, fmt.Sprintf("%#x", sym.Desc))
-				if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
-					vals = append(vals, fmt.Sprintf("%#x (%s)", sym.Desc&REFERENCE_TYPE, ReferenceType(sym.Desc&REFERENCE_TYPE)))
-				}
-				if sym.Desc&N_ARM_THUMB_DEF != 0 {
-					vals = append(vals, "0x8 (N_ARM_THUMB_DEF)")
-				}
-				if sym.Type&N_EXT != 0 {
-					if sym.Desc&REFERENCED_DYNAMICALLY != 0 {
-						vals = append(vals, "0x10 (REFERENCED_DYNAMICALLY)")
-					}
-				}
-				if f.Type == macho.TypeObj {
-					if sym.Desc&N_NO_DEAD_STRIP != 0 {
-						vals = append(vals, "0x20 (N_NO_DEAD_STRIP)")
-					}
-				} else {
-					if sym.Desc&N_DESC_DISCARDED != 0 {
-						vals = append(vals, "0x20 (N_DESC_DISCARDED)")
-					}
-				}
-				switch {
-				case sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD:
-					if sym.Desc&N_WEAK_REF != 0 {
-						vals = append(vals, "0x40 (N_WEAK_REF)")
-					}
-					if sym.Desc&N_REF_TO_WEAK != 0 {
-						vals = append(vals, "0x80 (N_REF_TO_WEAK)")
-					}
-				case sym.Type&N_EXT != 0:
-					if sym.Desc&N_WEAK_DEF != 0 {
-						vals = append(vals, "0x80 (N_WEAK_DEF)")
-					}
-				}
-				switch {
-				case f.Type == macho.TypeObj:
-					if sym.Desc&N_SYMBOL_RESOLVER != 0 {
-						vals = append(vals, "0x100 (N_SYMBOL_RESOLVER)")
-					}
-					if sym.Desc&N_ALT_ENTRY != 0 {
-						vals = append(vals, "0x200 (N_ALT_ENTRY)")
-					}
-				case f.Flags&macho.FlagTwoLevel != 0:
-					if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
-						ord := (sym.Desc >> 8) & 0xff
-						switch ord {
-						case SELF_LIBRARY_ORDINAL:
-							vals = append(vals, fmt.Sprintf("%#x (Library Ordinal = 0x0 (SELF_LIBRARY_ORDINAL))", sym.Desc&(0xff<<8)))
-						case DYNAMIC_LOOKUP_ORDINAL:
-							vals = append(vals, fmt.Sprintf("%#x (Library Ordinal = 0xfe (DYNAMIC_LOOKUP_ORDINAL))", sym.Desc&(0xff<<8)))
-						case EXECUTABLE_ORDINAL:
-							vals = append(vals, fmt.Sprintf("%#x (Library Ordinal = 0xff (EXECUTABLE_ORDINAL))", sym.Desc&(0xff<<8)))
-						default:
-							libs, err := f.ImportedLibraries()
-							if err != nil {
-								panic(err) // never happen
-							}
-							if int(ord) <= len(libs) {
-								vals = append(vals, fmt.Sprintf("%#x (Library Ordinal = %d (%s))", sym.Desc&(0xff<<8), ord, libs[ord-1]))
-							} else {
-								vals = append(vals, fmt.Sprintf("%#x (Library Ordinal = %d (?))", sym.Desc&(0xff<<8), ord))
-							}
-						}
-					}
-				}
-				// TODO
-				val = strings.Join(vals, "\t")
-			}
+			val = symDescString(f, sym)
 		case 4:
 			val = fmt.Sprintf("%#x", sym.Value)
 		}
@@ -276,19 +205,7 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 								reltab.SetItem(i, 1, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Value)))
 							}
 						}
-						switch f.Cpu {
-						case macho.Cpu386:
-							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeGeneric(r.Type))))
-						case macho.CpuAmd64:
-							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeX86_64(r.Type))))
-						case macho.CpuArm:
-							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeARM(r.Type))))
-						case macho.CpuArm | 0x01000000:
-							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%d (%s)", r.Type, macho.RelocTypeARM64(r.Type))))
-						default:
-							// TODO warning
-							reltab.SetItem(i, 2, gui.NewQStandardItem2(fmt.Sprintf("%#x (?)", r.Type)))
-						}
+						reltab.SetItem(i, 2, gui.NewQStandardItem2(relocString(r.Type, f.Cpu)))
 						switch r.Len {
 						case 0:
 							reltab.SetItem(i, 3, gui.NewQStandardItem2("0 (byte)"))
@@ -322,18 +239,143 @@ func newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemMod
 	}
 }
 
-func relocString(typ uint8, cpu macho.Cpu) string {
+func symTypeString(typ uint8) string {
+	var values []string
+	switch {
+	case typ&N_STAB != 0:
+		values = append(values, fmt.Sprintf("%#x (N_STAB)", typ&N_STAB))
+	case typ&N_TYPE != 0:
+		switch typ & N_TYPE {
+		case N_ABS:
+			values = append(values, fmt.Sprintf("%#x (N_ABS)", typ&N_TYPE))
+		case N_SECT:
+			values = append(values, fmt.Sprintf("%#x (N_SECT)", typ&N_TYPE))
+		case N_PBUD:
+			values = append(values, fmt.Sprintf("%#x (N_PBUD)", typ&N_TYPE))
+		case N_INDR:
+			values = append(values, fmt.Sprintf("%#x (N_INDR)", typ&N_TYPE))
+		default:
+			values = append(values, fmt.Sprintf("%#x (?)", typ&N_TYPE))
+		}
+	default:
+		values = append(values, "0x0 (N_UNDF)")
+	}
+	if typ&N_PEXT != 0 {
+		values = append(values, "0x10 (N_PEXT)")
+	}
+	if typ&N_EXT != 0 {
+		values = append(values, "0x01 (N_EXT)")
+	}
+	return strings.Join(values, "\n")
+}
+
+func symDescString(f *macho.File, sym *macho.Symbol) string {
+	if sym.Type&N_STAB != 0 {
+		// TODO handle stab
+		return fmt.Sprintf("%#x", sym.Desc)
+	}
+	desc := sym.Desc
+	var vals []string
+	if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
+		v := desc & REFERENCE_TYPE
+		vals = append(vals, fmt.Sprintf("%#x (%s)", v, ReferenceType(v)))
+		desc ^= v
+	}
+	if desc&N_ARM_THUMB_DEF != 0 {
+		vals = append(vals, "0x8 (N_ARM_THUMB_DEF)")
+		desc ^= N_ARM_THUMB_DEF
+	}
+	if sym.Type&N_EXT != 0 {
+		if desc&REFERENCED_DYNAMICALLY != 0 {
+			vals = append(vals, "0x10 (REFERENCED_DYNAMICALLY)")
+			desc ^= REFERENCED_DYNAMICALLY
+		}
+	}
+	if f.Type == macho.TypeObj {
+		if desc&N_NO_DEAD_STRIP != 0 {
+			vals = append(vals, "0x20 (N_NO_DEAD_STRIP)")
+			desc ^= N_NO_DEAD_STRIP
+		}
+	} else {
+		if desc&N_DESC_DISCARDED != 0 {
+			vals = append(vals, "0x20 (N_DESC_DISCARDED)")
+			desc ^= N_DESC_DISCARDED
+		}
+	}
+	switch {
+	case sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD:
+		if desc&N_WEAK_REF != 0 {
+			vals = append(vals, "0x40 (N_WEAK_REF)")
+			desc ^= N_WEAK_REF
+		}
+		if desc&N_REF_TO_WEAK != 0 {
+			vals = append(vals, "0x80 (N_REF_TO_WEAK)")
+			desc ^= N_REF_TO_WEAK
+		}
+	case sym.Type&N_EXT != 0:
+		if desc&N_WEAK_DEF != 0 {
+			vals = append(vals, "0x80 (N_WEAK_DEF)")
+			desc ^= N_WEAK_DEF
+		}
+	}
+	switch {
+	case f.Type == macho.TypeObj:
+		if desc&N_SYMBOL_RESOLVER != 0 {
+			vals = append(vals, "0x100 (N_SYMBOL_RESOLVER)")
+			desc ^= N_SYMBOL_RESOLVER
+		}
+		if desc&N_ALT_ENTRY != 0 {
+			vals = append(vals, "0x200 (N_ALT_ENTRY)")
+			desc ^= N_ALT_ENTRY
+		}
+	case f.Flags&macho.FlagTwoLevel != 0:
+		if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
+			v := desc & (0xff << 8)
+			switch ord := v >> 8; ord {
+			case SELF_LIBRARY_ORDINAL:
+				vals = append(vals, fmt.Sprintf("%#x (SELF_LIBRARY_ORDINAL)", v))
+			case DYNAMIC_LOOKUP_ORDINAL:
+				vals = append(vals, fmt.Sprintf("%#x (DYNAMIC_LOOKUP_ORDINAL)", v))
+			case EXECUTABLE_ORDINAL:
+				vals = append(vals, fmt.Sprintf("%#x (EXECUTABLE_ORDINAL)", v))
+			default:
+				libs, err := f.ImportedLibraries()
+				if err != nil {
+					panic(err) // never happen
+				}
+				if int(ord) <= len(libs) {
+					vals = append(vals, fmt.Sprintf("%#x (%s)", v, libs[ord-1]))
+				} else {
+					// TODO warning
+					vals = append(vals, fmt.Sprintf("%#x (?)", v))
+				}
+			}
+			desc ^= v
+		}
+	}
+	if desc != 0 {
+		// TODO warning
+		vals = append(vals, fmt.Sprintf("%#x (??)", desc))
+	}
+	if len(vals) == 0 {
+		return "0x0"
+	}
+	return strings.Join(vals, "\n")
+}
+
+func relocString(r uint8, cpu macho.Cpu) string {
 	switch cpu {
 	case macho.Cpu386:
-		return macho.RelocTypeGeneric(typ).String()
+		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeGeneric(r))
 	case macho.CpuAmd64:
-		return macho.RelocTypeX86_64(typ).String()
+		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeX86_64(r))
 	case macho.CpuArm:
-		return macho.RelocTypeARM(typ).String()
+		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeARM(r))
 	case macho.CpuArm | 0x01000000:
-		return macho.RelocTypeARM64(typ).String()
+		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeARM64(r))
 	default:
-		return "?"
+		// TODO warning
+		return fmt.Sprintf("%#x (?)", r)
 	}
 }
 
