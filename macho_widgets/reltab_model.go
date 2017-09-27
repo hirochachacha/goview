@@ -88,33 +88,33 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, sections []*macho.Secti
 			switch index.Column() {
 			case 0: // Addr
 				if len(sections) == 0 {
-					val = fmt.Sprintf("%#x", r.Addr)
+					val = fmt.Sprintf("%#016x", r.Addr)
 				} else {
 					sect := sections[row]
-					val = fmt.Sprintf("%#x+%#x (%s,%s)", r.Addr, sect.Addr, sect.Seg, sect.Name)
+					val = fmt.Sprintf("%#016x+%#016x (%s,%s)", r.Addr, sect.Addr, sect.Seg, sect.Name)
 				}
 			case 1: // Value
 				switch {
 				case r.Scattered:
-					val = fmt.Sprintf("%#x (?)", r.Value)
+					val = fmt.Sprintf("%#016x (?)", r.Value)
 				case r.Extern:
 					var syms []macho.Symbol
 					if f.Symtab != nil {
 						syms = f.Symtab.Syms
 					}
 					if len(syms) < math.MaxUint32 && 0 <= r.Value && r.Value < uint32(len(syms)) {
-						val = fmt.Sprintf("%#x (%s)", r.Value, syms[r.Value].Name)
+						val = fmt.Sprintf("%d (%s)", r.Value, syms[r.Value].Name)
 					} else {
 						// TODO warning
-						val = fmt.Sprintf("%#x (?)", r.Value)
+						val = fmt.Sprintf("%d (?)", r.Value)
 					}
 				default:
 					if len(f.Sections) < math.MaxUint32 && 0 <= r.Value-1 && r.Value-1 < uint32(len(f.Sections)) {
 						sect := f.Sections[r.Value-1]
-						val = fmt.Sprintf("%#x (%s,%s)", r.Value, sect.Seg, sect.Name)
+						val = fmt.Sprintf("%d (%s,%s)", r.Value, sect.Seg, sect.Name)
 					} else {
 						// TODO warning
-						val = fmt.Sprintf("%#x (?)", r.Value)
+						val = fmt.Sprintf("%d (?)", r.Value)
 					}
 				}
 			case 2: // Type
@@ -163,6 +163,6 @@ func relocString(r uint8, cpu macho.Cpu) string {
 		return fmt.Sprintf("%d (%s)", r, macho.RelocTypeARM64(r))
 	default:
 		// TODO warning
-		return fmt.Sprintf("%#x (?)", r)
+		return fmt.Sprintf("%d (?)", r)
 	}
 }

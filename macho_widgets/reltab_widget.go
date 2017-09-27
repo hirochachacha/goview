@@ -17,7 +17,6 @@ func NewReltabWidget(f *macho.File) widgets.QWidget_ITF {
 	reltab := widgets.NewQTableView(nil)
 	reltab.VerticalHeader().SetVisible(false)
 	reltab.VerticalHeader().SetDefaultSectionSize(20)
-	reltab.HorizontalHeader().SetStretchLastSection(true)
 	reltab.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
 	reltab.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
 	reltab.SetShowGrid(false)

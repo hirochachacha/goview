@@ -1,4 +1,4 @@
-//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,LoadCommand,ReferenceType -output types_string.go
+//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,SectionType,LoadCommand,ReferenceType -output types_string.go
 package macho_widgets
 
 type CpuType uint32
@@ -173,6 +173,59 @@ var segmentFlagStrings = [...]string{
 	"SG_NORELOC",
 	"SG_PROTECTED_VERSION_1",
 }
+
+const (
+	SECTION_TYPE           = 0x000000ff
+	SECTION_ATTRIBUTES     = 0xffffff00
+	SECTION_ATTRIBUTES_USR = 0xff000000
+	SECTION_ATTRIBUTES_SYS = 0x00ffff00
+)
+
+type SectionType uint32
+
+const (
+	S_REGULAR          SectionType = 0x0
+	S_ZEROFILL         SectionType = 0x1
+	S_CSTRING_LITERALS SectionType = 0x2
+	S_4BYTE_LITERALS   SectionType = 0x3
+	S_8BYTE_LITERALS   SectionType = 0x4
+	S_LITERAL_POINTERS SectionType = 0x5
+
+	S_NON_LAZY_SYMBOL_POINTERS   SectionType = 0x6
+	S_LAZY_SYMBOL_POINTERS       SectionType = 0x7
+	S_SYMBOL_STUBS               SectionType = 0x8
+	S_MOD_INIT_FUNC_POINTERS     SectionType = 0x9
+	S_MOD_TERM_FUNC_POINTERS     SectionType = 0xa
+	S_COALESCED                  SectionType = 0xb
+	S_GB_ZEROFILL                SectionType = 0xc
+	S_INTERPOSING                SectionType = 0xd
+	S_16BYTE_LITERALS            SectionType = 0xe
+	S_DTRACE_DOF                 SectionType = 0xf
+	S_LAZY_DYLIB_SYMBOL_POINTERS SectionType = 0x10
+
+	S_THREAD_LOCAL_REGULAR                SectionType = 0x11
+	S_THREAD_LOCAL_ZEROFILL               SectionType = 0x12
+	S_THREAD_LOCAL_VARIABLES              SectionType = 0x13
+	S_THREAD_LOCAL_VARIABLE_POINTERS      SectionType = 0x14
+	S_THREAD_LOCAL_INIT_FUNCTION_POINTERS SectionType = 0x15
+)
+
+type SectionFlag uint32
+
+const (
+	S_ATTR_PURE_INSTRUCTIONS   = 0x80000000
+	S_ATTR_NO_TOC              = 0x40000000
+	S_ATTR_STRIP_STATIC_SYMS   = 0x20000000
+	S_ATTR_NO_DEAD_STRIP       = 0x10000000
+	S_ATTR_LIVE_SUPPORT        = 0x08000000
+	S_ATTR_SELF_MODIFYING_CODE = 0x04000000
+
+	S_ATTR_DEBUG = 0x02000000
+
+	S_ATTR_SOME_INSTRUCTIONS = 0x00000400
+	S_ATTR_EXT_RELOC         = 0x00000200
+	S_ATTR_LOC_RELOC         = 0x00000100
+)
 
 type LoadCommand uint32
 
