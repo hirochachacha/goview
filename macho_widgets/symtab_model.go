@@ -1,18 +1,21 @@
 package macho_widgets
 
 import (
+	"bytes"
 	"debug/macho"
 	"fmt"
 	"sort"
 	"strings"
+
+	"golang.org/x/arch/x86/x86asm"
 
 	"github.com/therecipe/qt/core"
 )
 
 type SymtabModel struct {
 	Symtab core.QAbstractItemModel_ITF
-	reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 	disasm func(index *core.QModelIndex) string
+	reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
 func NewSymtabModel(f *macho.File) *SymtabModel {
@@ -21,10 +24,15 @@ func NewSymtabModel(f *macho.File) *SymtabModel {
 	symtab := core.NewQSortFilterProxyModel(nil)
 	symtab.SetSourceModel(m.newSymtabModel(f))
 
-	reltab := m.newReltabModel(f, m.makeSymAddrInfo(f))
+	info := m.makeSymAddrInfo(f)
+
+	disasm := m.newDisasm(f, info)
+
+	reltab := m.newReltabModel(f, info)
 
 	return &SymtabModel{
 		Symtab: symtab,
+		disasm: disasm,
 		reltab: reltab,
 	}
 }
@@ -39,41 +47,6 @@ func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 
 func (m *SymtabModel) Disasm(index *core.QModelIndex) string {
 	return m.disasm(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
-}
-
-func (m *SymtabModel) newDisasm(f *macho.File) func(*core.QModelIndex) string {
-	return nil
-	// if !index.IsValid() {
-	// return nil
-	// }
-	// row := index.Row()
-	// if 0 <= row && row < len(syms) {
-	// sym := &syms[row]
-
-	// if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-	// // if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
-	// // sect := f.Sections[sym.Sect-1]
-	// // } else {
-	// // // TODO warning
-	// // }
-
-	// var reltab core.QAbstractItemModel_ITF
-
-	// if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-	// reltab = newReltabModel(f, symInfo.Relocs, symInfo.Sections)
-	// if reltab != nil {
-	// proxy := core.NewQSortFilterProxyModel(nil)
-	// proxy.SetSourceModel(reltab)
-	// reltab = proxy
-	// }
-	// }
-
-	// reltabCache[row] = reltab
-
-	// return reltab
-	// }
-	// }
-	// return nil
 }
 
 func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
@@ -138,6 +111,109 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	})
 
 	return symtab
+}
+
+func (m *SymtabModel) newDisasm(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) string {
+	var syms []macho.Symbol
+	if f.Symtab != nil {
+		syms = f.Symtab.Syms
+	}
+
+	return func(index *core.QModelIndex) string {
+		if !index.IsValid() {
+			return ""
+		}
+		row := index.Row()
+		if 0 <= row && row < len(syms) {
+			sym := &syms[row]
+			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+				if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
+					sect := f.Sections[sym.Sect-1]
+
+					if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
+						var buf bytes.Buffer
+
+						info := symAddrInfo[sym.Value]
+						switch f.Cpu {
+						case macho.Cpu386, macho.CpuAmd64:
+							mode := 32
+							if f.Cpu == macho.CpuAmd64 {
+								mode = 64
+							}
+							code := make([]byte, info.Size)
+							n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
+							if n != len(code) || err != nil {
+								// TODO warning
+								return ""
+							}
+							for len(code) != 0 {
+								inst, err := x86asm.Decode(code, mode)
+								if err != nil {
+									// TODO warning
+									return ""
+								}
+
+								buf.WriteString(x86asm.GNUSyntax(inst, 0, nil))
+								buf.WriteByte('\n')
+
+								code = code[inst.Len:]
+							}
+						case macho.CpuArm:
+							// TODO
+						case macho.CpuArm | 0x01000000:
+							// TODO
+						case macho.CpuPpc64:
+							// TODO
+						}
+
+						return buf.String()
+					}
+				}
+			}
+		}
+		return ""
+	}
+}
+
+func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+	var syms []macho.Symbol
+	if f.Symtab != nil {
+		syms = f.Symtab.Syms
+	}
+
+	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
+
+	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+		if !index.IsValid() {
+			return nil
+		}
+		row := index.Row()
+		if 0 <= row && row < len(syms) {
+			if reltab, ok := reltabCache[row]; ok {
+				return reltab
+			}
+
+			sym := &syms[row]
+
+			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+				var reltab core.QAbstractItemModel_ITF
+
+				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
+					reltab = newReltabModel(f, symInfo.Relocs, symInfo.Sections)
+					if reltab != nil {
+						proxy := core.NewQSortFilterProxyModel(nil)
+						proxy.SetSourceModel(reltab)
+						reltab = proxy
+					}
+				}
+
+				reltabCache[row] = reltab
+
+				return reltab
+			}
+		}
+		return nil
+	}
 }
 
 type symInfo struct {
@@ -214,47 +290,6 @@ func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
 	}
 
 	return symAddrInfo
-}
-
-func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-
-	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
-
-	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-		if !index.IsValid() {
-			return nil
-		}
-		row := index.Row()
-		if 0 <= row && row < len(syms) {
-			if reltab, ok := reltabCache[row]; ok {
-				return reltab
-			}
-
-			sym := &syms[row]
-
-			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-				var reltab core.QAbstractItemModel_ITF
-
-				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-					reltab = newReltabModel(f, symInfo.Relocs, symInfo.Sections)
-					if reltab != nil {
-						proxy := core.NewQSortFilterProxyModel(nil)
-						proxy.SetSourceModel(reltab)
-						reltab = proxy
-					}
-				}
-
-				reltabCache[row] = reltab
-
-				return reltab
-			}
-		}
-		return nil
-	}
 }
 
 func symTypeString(typ uint8) string {

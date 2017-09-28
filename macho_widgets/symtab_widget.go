@@ -49,32 +49,31 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		reltab.SetModel(symtabModel.Reltab(current))
 	})
 
-	// TODO add assembly widget (bottom)
+	asmview := widgets.NewQTextEdit(nil)
+	asmview.SetReadOnly(true)
 
-	symtabGroup := widgets.NewQGroupBox2("Symbols", nil)
+	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
+		asmview.SetPlainText(symtabModel.Disasm(current))
+	})
+
+	symtabGroup := widgets.NewQWidget(nil, 0)
 	{
 		vlayout := widgets.NewQVBoxLayout()
 		vlayout.AddWidget(search, 0, 0)
 		vlayout.AddWidget(symtab, 0, 0)
+		vlayout.SetContentsMargins(0, 0, 0, 0)
 		symtabGroup.SetLayout(vlayout)
-		symtabGroup.SetFlat(true)
 	}
 
-	if f.Type != macho.TypeObj {
-		return symtabGroup
+	tab := widgets.NewQTabWidget(nil)
+	if f.Type == macho.TypeObj {
+		tab.AddTab(reltab, "Relocations")
 	}
-
-	reltabGroup := widgets.NewQGroupBox2("Relocations", nil)
-	{
-		vlayout := widgets.NewQVBoxLayout()
-		vlayout.AddWidget(reltab, 0, 0)
-		reltabGroup.SetLayout(vlayout)
-		reltabGroup.SetFlat(true)
-	}
+	tab.AddTab(asmview, "Assembly")
 
 	sp := widgets.NewQSplitter2(core.Qt__Vertical, nil)
 	sp.AddWidget(symtabGroup)
-	sp.AddWidget(reltabGroup)
+	sp.AddWidget(tab)
 
 	w := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQVBoxLayout()
