@@ -314,6 +314,11 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 			vals = append(vals, "0x0020 (N_NO_DEAD_STRIP)")
 			desc ^= N_NO_DEAD_STRIP
 		}
+		if sym.Type&N_TYPE == N_UNDF && sym.Type&N_EXT != 0 && sym.Value != 0 { // common symbol
+			v := desc & (0x0f << 8)
+			vals = append(vals, fmt.Sprintf("%#04x (alignment: %d)", v, v>>7))
+			desc ^= v
+		}
 	} else {
 		if desc&N_DESC_DISCARDED != 0 {
 			vals = append(vals, "0x0020 (N_DESC_DISCARDED)")
