@@ -50,7 +50,7 @@ func (m *ReltabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 	return nil
 }
 
-func newReltabModel(f *macho.File, relocs []macho.Reloc, sections []*macho.Section) core.QAbstractItemModel_ITF {
+func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.Section) core.QAbstractItemModel_ITF {
 	header := []string{"Address", "Value", "Type", "Length", "PC Relative", "Extern", "Scattered"}
 
 	m := core.NewQAbstractTableModel(nil)
@@ -87,10 +87,10 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, sections []*macho.Secti
 
 			switch index.Column() {
 			case 0: // Addr
-				if len(sections) == 0 {
+				if len(relocSections) == 0 {
 					val = fmt.Sprintf("%#016x", r.Addr)
 				} else {
-					sect := sections[row]
+					sect := relocSections[row]
 					val = fmt.Sprintf("%#016x+%#016x (%s,%s)", r.Addr, sect.Addr, sect.Seg, sect.Name)
 				}
 			case 1: // Value

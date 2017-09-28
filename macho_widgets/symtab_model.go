@@ -24,9 +24,11 @@ func NewSymtabModel(f *macho.File) *SymtabModel {
 	symtab := core.NewQSortFilterProxyModel(nil)
 	symtab.SetSourceModel(m.newSymtabModel(f))
 
-	info := m.makeSymAddrInfo(f)
+	ssyms := m.makeSortedSymbols(f)
 
-	asmtab := m.newAsmtab(f, info)
+	info := m.makeSymAddrInfo(f, ssyms)
+
+	asmtab := m.newAsmtab(f, ssyms, info)
 
 	reltab := m.newReltabModel(f, info)
 
@@ -128,7 +130,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newAsmtab(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
@@ -165,6 +167,7 @@ func (m *SymtabModel) newAsmtab(f *macho.File, symAddrInfo map[uint64]*symInfo) 
 								// TODO warning
 								return nil
 							}
+
 							for len(code) != 0 {
 								inst, err := x86asm.Decode(code, mode)
 								if err != nil {
@@ -175,7 +178,18 @@ func (m *SymtabModel) newAsmtab(f *macho.File, symAddrInfo map[uint64]*symInfo) 
 								asmtab.AppendRow([]*gui.QStandardItem{
 									gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr)),
 									gui.NewQStandardItem2(fmt.Sprintf("% x", code[:inst.Len])),
-									gui.NewQStandardItem2(x86asm.GNUSyntax(inst, 0, nil)),
+									gui.NewQStandardItem2(x86asm.GNUSyntax(inst, addr, func(taddr uint64) (string, uint64) {
+										j := sort.Search(len(ssyms), func(i int) bool {
+											return addr < ssyms[i].Value
+										})
+										if j > 0 {
+											sym := ssyms[j-1]
+											if sym.Value != 0 && sym.Value <= addr && addr <= sym.Value+info.Size {
+												return sym.Name, sym.Value
+											}
+										}
+										return "", 0
+									})),
 								})
 
 								code = code[inst.Len:]
@@ -223,7 +237,7 @@ func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symI
 				var reltab core.QAbstractItemModel_ITF
 
 				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-					reltab = newReltabModel(f, symInfo.Relocs, symInfo.Sections)
+					reltab = newReltabModel(f, symInfo.Relocs, symInfo.RelocSections)
 					if reltab != nil {
 						proxy := core.NewQSortFilterProxyModel(nil)
 						proxy.SetSourceModel(reltab)
@@ -241,21 +255,20 @@ func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symI
 }
 
 type symInfo struct {
-	Size     uint64
-	Relocs   []macho.Reloc
-	Sections []*macho.Section
-	Symbols  []*macho.Symbol
+	Size          uint64
+	Relocs        []macho.Reloc
+	RelocSections []*macho.Section
+	Symbols       []*macho.Symbol
 }
 
-func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
+func (m *SymtabModel) makeSortedSymbols(f *macho.File) []*macho.Symbol {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
 	}
 
-	symAddrInfo := make(map[uint64]*symInfo)
-
 	ssyms := make([]*macho.Symbol, 0, len(syms))
+
 	for i := range syms {
 		sym := &syms[i]
 		if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
@@ -263,6 +276,13 @@ func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
 		}
 	}
 	sort.Sort(byAddr(ssyms))
+
+	return ssyms
+}
+
+func (m *SymtabModel) makeSymAddrInfo(f *macho.File, ssyms []*macho.Symbol) map[uint64]*symInfo {
+	symAddrInfo := make(map[uint64]*symInfo)
+
 	if len(ssyms) != 0 {
 		for i := 0; i < len(ssyms); i++ {
 			sym := ssyms[i]
@@ -307,7 +327,7 @@ func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
 				info := symAddrInfo[sym.Value]
 				if sym.Value <= sect.Addr+uint64(r.Addr) && sect.Addr+uint64(r.Addr)+(1<<r.Len) <= sym.Value+info.Size {
 					info.Relocs = append(info.Relocs, r)
-					info.Sections = append(info.Sections, sect)
+					info.RelocSections = append(info.RelocSections, sect)
 				}
 			}
 		}
