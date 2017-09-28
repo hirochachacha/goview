@@ -104,7 +104,22 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 		case 3:
 			val = symDescString(f, sym)
 		case 4:
-			val = fmt.Sprintf("%#016x", sym.Value)
+			switch {
+			case sym.Type&N_STAB != 0:
+				// TODO handle stab
+				val = fmt.Sprintf("%#016x", sym.Value)
+			case sym.Type&N_TYPE == N_UNDF:
+				if sym.Value != 0 { // common symbol
+					val = fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
+				}
+			case sym.Type&N_TYPE == N_PBUD:
+				if sym.Value != 0 { // ?
+					// TODO warning
+					val = fmt.Sprintf("%d (?)", sym.Value)
+				}
+			default:
+				val = fmt.Sprintf("%#016x", sym.Value)
+			}
 		}
 
 		return core.NewQVariant14(val)
@@ -349,7 +364,7 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 			vals = append(vals, "0x0020 (N_NO_DEAD_STRIP)")
 			desc ^= N_NO_DEAD_STRIP
 		}
-		if sym.Type&N_TYPE == N_UNDF && sym.Type&N_EXT != 0 && sym.Value != 0 { // common symbol
+		if sym.Type&N_TYPE == N_UNDF && sym.Value != 0 { // common symbol
 			v := desc & (0x0f << 8)
 			vals = append(vals, fmt.Sprintf("%#04x (alignment: %d)", v, v>>7))
 			desc ^= v
