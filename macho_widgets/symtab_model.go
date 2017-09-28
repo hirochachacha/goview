@@ -1,7 +1,6 @@
 package macho_widgets
 
 import (
-	"bytes"
 	"debug/macho"
 	"fmt"
 	"sort"
@@ -10,11 +9,12 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 
 	"github.com/therecipe/qt/core"
+	"github.com/therecipe/qt/gui"
 )
 
 type SymtabModel struct {
 	Symtab core.QAbstractItemModel_ITF
-	disasm func(index *core.QModelIndex) string
+	asmtab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 	reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
@@ -26,13 +26,13 @@ func NewSymtabModel(f *macho.File) *SymtabModel {
 
 	info := m.makeSymAddrInfo(f)
 
-	disasm := m.newDisasm(f, info)
+	asmtab := m.newAsmtab(f, info)
 
 	reltab := m.newReltabModel(f, info)
 
 	return &SymtabModel{
 		Symtab: symtab,
-		disasm: disasm,
+		asmtab: asmtab,
 		reltab: reltab,
 	}
 }
@@ -45,8 +45,8 @@ func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 	return m.reltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
-func (m *SymtabModel) Disasm(index *core.QModelIndex) string {
-	return m.disasm(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
+func (m *SymtabModel) Asmtab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+	return m.asmtab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
 func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
@@ -128,15 +128,15 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newDisasm(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) string {
+func (m *SymtabModel) newAsmtab(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
 	}
 
-	return func(index *core.QModelIndex) string {
+	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
 		if !index.IsValid() {
-			return ""
+			return nil
 		}
 		row := index.Row()
 		if 0 <= row && row < len(syms) {
@@ -146,9 +146,13 @@ func (m *SymtabModel) newDisasm(f *macho.File, symAddrInfo map[uint64]*symInfo) 
 					sect := f.Sections[sym.Sect-1]
 
 					if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
-						var buf bytes.Buffer
+						asmtab := gui.NewQStandardItemModel(nil)
+						asmtab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
+						asmtab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
+						asmtab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Instruction"))
 
-						info := symAddrInfo[sym.Value]
+						addr := sym.Value
+						info := symAddrInfo[addr]
 						switch f.Cpu {
 						case macho.Cpu386, macho.CpuAmd64:
 							mode := 32
@@ -159,19 +163,24 @@ func (m *SymtabModel) newDisasm(f *macho.File, symAddrInfo map[uint64]*symInfo) 
 							n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
 							if n != len(code) || err != nil {
 								// TODO warning
-								return ""
+								return nil
 							}
 							for len(code) != 0 {
 								inst, err := x86asm.Decode(code, mode)
 								if err != nil {
 									// TODO warning
-									return ""
+									return nil
 								}
 
-								buf.WriteString(x86asm.GNUSyntax(inst, 0, nil))
-								buf.WriteByte('\n')
+								asmtab.AppendRow([]*gui.QStandardItem{
+									gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr)),
+									gui.NewQStandardItem2(fmt.Sprintf("% x", code[:inst.Len])),
+									gui.NewQStandardItem2(x86asm.GNUSyntax(inst, 0, nil)),
+								})
 
 								code = code[inst.Len:]
+
+								addr += uint64(inst.Len)
 							}
 						case macho.CpuArm:
 							// TODO
@@ -181,12 +190,12 @@ func (m *SymtabModel) newDisasm(f *macho.File, symAddrInfo map[uint64]*symInfo) 
 							// TODO
 						}
 
-						return buf.String()
+						return asmtab
 					}
 				}
 			}
 		}
-		return ""
+		return nil
 	}
 }
 

@@ -49,11 +49,18 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		reltab.SetModel(symtabModel.Reltab(current))
 	})
 
-	asmview := widgets.NewQTextEdit(nil)
-	asmview.SetReadOnly(true)
+	asmtab := widgets.NewQTableView(nil)
+	asmtab.VerticalHeader().SetVisible(false)
+	asmtab.VerticalHeader().SetDefaultSectionSize(20)
+	asmtab.HorizontalHeader().SetStretchLastSection(true)
+	asmtab.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
+	asmtab.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
+	asmtab.SetShowGrid(false)
+	asmtab.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
+	asmtab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
 	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
-		asmview.SetPlainText(symtabModel.Disasm(current))
+		asmtab.SetModel(symtabModel.Asmtab(current))
 	})
 
 	symtabGroup := widgets.NewQWidget(nil, 0)
@@ -71,10 +78,10 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		if f.Type == macho.TypeObj {
 			tab.AddTab(reltab, "Relocations")
 		}
-		tab.AddTab(asmview, "Assembly")
+		tab.AddTab(asmtab, "Assembly")
 		ra = tab
 	} else {
-		ra = asmview
+		ra = asmtab
 	}
 
 	sp := widgets.NewQSplitter2(core.Qt__Vertical, nil)
