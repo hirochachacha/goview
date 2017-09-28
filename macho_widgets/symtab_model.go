@@ -141,10 +141,10 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 }
 
 type symInfo struct {
-	Symbol    *macho.Symbol
-	Relocs    []macho.Reloc
-	Sections  []*macho.Section
-	SameAddrs []*macho.Symbol
+	Size     uint64
+	Relocs   []macho.Reloc
+	Sections []*macho.Section
+	Symbols  []*macho.Symbol
 }
 
 func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
@@ -164,41 +164,51 @@ func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
 	}
 	sort.Sort(byAddr(ssyms))
 	if len(ssyms) != 0 {
+		for i := 0; i < len(ssyms); i++ {
+			sym := ssyms[i]
+			info := new(symInfo)
+			info.Symbols = append(info.Symbols, sym)
+			if i == len(ssyms)-1 {
+				if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
+					sect := f.Sections[sym.Sect-1]
+					info.Size = sect.Addr + sect.Size - sym.Value
+				}
+			} else {
+				for j := i + 1; j < len(ssyms); j++ {
+					nsym := ssyms[j]
+					if sym.Value != nsym.Value {
+						if sym.Sect == nsym.Sect {
+							info.Size = nsym.Value - sym.Value
+						} else {
+							if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
+								sect := f.Sections[sym.Sect-1]
+								info.Size = sect.Addr + sect.Size - sym.Value
+							}
+						}
+						i = j - 1
+						break
+					}
+					info.Symbols = append(info.Symbols, nsym)
+				}
+			}
+			symAddrInfo[sym.Value] = info
+		}
+
 		for _, sect := range f.Sections {
-			for i := range sect.Relocs {
-				r := sect.Relocs[i]
-				k := sort.Search(len(ssyms), func(i int) bool {
-					return ssyms[i].Value > sect.Addr+uint64(r.Addr)
+			for _, r := range sect.Relocs {
+				k := sort.Search(len(ssyms), func(j int) bool {
+					sym := ssyms[j]
+					return sym.Value > sect.Addr+uint64(r.Addr)
 				})
 				if k == 0 {
-					// TODO warning
 					continue
 				}
-				tsym := ssyms[k-1]
-				if k == len(ssyms) {
-					if 0 < int(tsym.Sect) && int(tsym.Sect) <= len(f.Sections) {
-						tsect := f.Sections[tsym.Sect-1]
-						if sect.Addr+uint64(r.Addr) > tsect.Addr+tsect.Size {
-							// TODO handle unbinded relocations
-							continue
-						}
-					} else {
-						// TODO warning
-						continue
-					}
+				sym := ssyms[k-1]
+				info := symAddrInfo[sym.Value]
+				if sym.Value <= sect.Addr+uint64(r.Addr) && sect.Addr+uint64(r.Addr)+(1<<r.Len) <= sym.Value+info.Size {
+					info.Relocs = append(info.Relocs, r)
+					info.Sections = append(info.Sections, sect)
 				}
-				addr := tsym.Value
-				info := symAddrInfo[addr]
-				if info == nil {
-					info = new(symInfo)
-					info.Symbol = tsym
-					for k := k - 1; k >= 0 && ssyms[k].Value == addr; k-- {
-						info.SameAddrs = append(info.SameAddrs, ssyms[k])
-					}
-					symAddrInfo[addr] = info
-				}
-				info.Relocs = append(info.Relocs, r)
-				info.Sections = append(info.Sections, sect)
 			}
 		}
 	}
