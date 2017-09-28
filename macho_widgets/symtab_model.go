@@ -21,7 +21,7 @@ func NewSymtabModel(f *macho.File) *SymtabModel {
 	symtab := core.NewQSortFilterProxyModel(nil)
 	symtab.SetSourceModel(m.newSymtabModel(f))
 
-	reltab := m.newReltabModel(f)
+	reltab := m.newReltabModel(f, m.makeSymAddrInfo(f))
 
 	return &SymtabModel{
 		Symtab: symtab,
@@ -140,17 +140,17 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newReltabModel(f *macho.File) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+type symInfo struct {
+	Symbol    *macho.Symbol
+	Relocs    []macho.Reloc
+	Sections  []*macho.Section
+	SameAddrs []*macho.Symbol
+}
+
+func (m *SymtabModel) makeSymAddrInfo(f *macho.File) map[uint64]*symInfo {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
-	}
-
-	type symInfo struct {
-		Symbol    *macho.Symbol
-		Relocs    []macho.Reloc
-		Sections  []*macho.Section
-		SameAddrs []*macho.Symbol
 	}
 
 	symAddrInfo := make(map[uint64]*symInfo)
@@ -201,6 +201,15 @@ func (m *SymtabModel) newReltabModel(f *macho.File) func(*core.QModelIndex) core
 				info.Sections = append(info.Sections, sect)
 			}
 		}
+	}
+
+	return symAddrInfo
+}
+
+func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+	var syms []macho.Symbol
+	if f.Symtab != nil {
+		syms = f.Symtab.Syms
 	}
 
 	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
