@@ -65,15 +65,21 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		symtabGroup.SetLayout(vlayout)
 	}
 
-	tab := widgets.NewQTabWidget(nil)
+	var ra widgets.QWidget_ITF
 	if f.Type == macho.TypeObj {
-		tab.AddTab(reltab, "Relocations")
+		tab := widgets.NewQTabWidget(nil)
+		if f.Type == macho.TypeObj {
+			tab.AddTab(reltab, "Relocations")
+		}
+		tab.AddTab(asmview, "Assembly")
+		ra = tab
+	} else {
+		ra = asmview
 	}
-	tab.AddTab(asmview, "Assembly")
 
 	sp := widgets.NewQSplitter2(core.Qt__Vertical, nil)
 	sp.AddWidget(symtabGroup)
-	sp.AddWidget(tab)
+	sp.AddWidget(ra)
 
 	w := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQVBoxLayout()
