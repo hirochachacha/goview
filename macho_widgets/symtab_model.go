@@ -4,7 +4,6 @@ import (
 	"debug/macho"
 	"encoding/binary"
 	"fmt"
-	"sort"
 	"strings"
 
 	"golang.org/x/arch/arm/armasm"
@@ -22,19 +21,15 @@ type SymtabModel struct {
 	reltab  func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
-func NewSymtabModel(f *macho.File) *SymtabModel {
+func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) *SymtabModel {
 	m := new(SymtabModel)
 
 	symtab := core.NewQSortFilterProxyModel(nil)
 	symtab.SetSourceModel(m.newSymtabModel(f))
 
-	ssyms := m.makeSortedSymbols(f)
+	asmtree := m.newAsmtree(f, ssyms, symAddrInfo, lookup)
 
-	info := m.makeSymAddrInfo(f, ssyms)
-
-	asmtree := m.newAsmtree(f, ssyms, info)
-
-	reltab := m.newReltabModel(f, info)
+	reltab := m.newReltabModel(f, symAddrInfo, lookup)
 
 	return &SymtabModel{
 		Symtab:  symtab,
@@ -134,7 +129,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
@@ -173,19 +168,6 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 							return nil
 						}
 
-						lookup := func(addr uint64) (string, uint64) {
-							j := sort.Search(len(ssyms), func(i int) bool {
-								return addr < ssyms[i].Value
-							})
-							if j > 0 {
-								sym := ssyms[j-1]
-								if sym.Value != 0 && sym.Value <= addr && addr <= sym.Value+info.Size {
-									return sym.Name, sym.Value
-								}
-							}
-							return "", 0
-						}
-
 						disasm := disasmFunc(f.Cpu, f.ByteOrder, lookup)
 						if disasm == nil {
 							// TODO warning
@@ -212,8 +194,8 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 										rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
 										addrItem.AppendRow([]*gui.QStandardItem{
 											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-											gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
-											gui.NewQStandardItem2(relocValueString(f, r)),
+											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rcode)),
+											gui.NewQStandardItem2(relocValueString(f, r, lookup)),
 											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
 											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
 											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
@@ -237,7 +219,7 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 	}
 }
 
-func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
@@ -261,7 +243,7 @@ func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symI
 				var reltab core.QAbstractItemModel_ITF
 
 				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-					reltab = newReltabModel(f, symInfo.Relocs, symInfo.RelocSections)
+					reltab = newReltabModel(f, symInfo.Relocs, symInfo.RelocSections, lookup)
 					if reltab != nil {
 						proxy := core.NewQSortFilterProxyModel(nil)
 						proxy.SetSourceModel(reltab)
@@ -276,88 +258,6 @@ func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symI
 		}
 		return nil
 	}
-}
-
-type symInfo struct {
-	Size          uint64
-	Relocs        []macho.Reloc
-	RelocSections []*macho.Section
-	Symbols       []*macho.Symbol
-}
-
-func (m *SymtabModel) makeSortedSymbols(f *macho.File) []*macho.Symbol {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-
-	ssyms := make([]*macho.Symbol, 0, len(syms))
-
-	for i := range syms {
-		sym := &syms[i]
-		if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-			ssyms = append(ssyms, sym)
-		}
-	}
-	sort.Sort(byAddr(ssyms))
-
-	return ssyms
-}
-
-func (m *SymtabModel) makeSymAddrInfo(f *macho.File, ssyms []*macho.Symbol) map[uint64]*symInfo {
-	symAddrInfo := make(map[uint64]*symInfo)
-
-	if len(ssyms) != 0 {
-		for i := 0; i < len(ssyms); i++ {
-			sym := ssyms[i]
-			info := new(symInfo)
-			info.Symbols = append(info.Symbols, sym)
-			if i == len(ssyms)-1 {
-				if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
-					sect := f.Sections[sym.Sect-1]
-					info.Size = sect.Addr + sect.Size - sym.Value
-				}
-			} else {
-				for j := i + 1; j < len(ssyms); j++ {
-					nsym := ssyms[j]
-					if sym.Value != nsym.Value {
-						if sym.Sect == nsym.Sect {
-							info.Size = nsym.Value - sym.Value
-						} else {
-							if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
-								sect := f.Sections[sym.Sect-1]
-								info.Size = sect.Addr + sect.Size - sym.Value
-							}
-						}
-						i = j - 1
-						break
-					}
-					info.Symbols = append(info.Symbols, nsym)
-				}
-			}
-			symAddrInfo[sym.Value] = info
-		}
-
-		for _, sect := range f.Sections {
-			for _, r := range sect.Relocs {
-				k := sort.Search(len(ssyms), func(j int) bool {
-					sym := ssyms[j]
-					return sym.Value > sect.Addr+uint64(r.Addr)
-				})
-				if k == 0 {
-					continue
-				}
-				sym := ssyms[k-1]
-				info := symAddrInfo[sym.Value]
-				if sym.Value <= sect.Addr+uint64(r.Addr) && sect.Addr+uint64(r.Addr)+(1<<r.Len) <= sym.Value+info.Size {
-					info.Relocs = append(info.Relocs, r)
-					info.RelocSections = append(info.RelocSections, sect)
-				}
-			}
-		}
-	}
-
-	return symAddrInfo
 }
 
 func symTypeString(typ uint8) string {
@@ -503,7 +403,7 @@ func (v byAddr) Swap(i, j int) {
 	v[i], v[j] = v[j], v[i]
 }
 
-func disasmFunc(cpu macho.Cpu, bo binary.ByteOrder, lookup func(uint64) (string, uint64)) func(code []byte, pc uint64) (string, int) {
+func disasmFunc(cpu macho.Cpu, bo binary.ByteOrder, lookup symLookup) func(code []byte, pc uint64) (string, int) {
 	switch cpu {
 	case macho.Cpu386:
 		return func(code []byte, pc uint64) (string, int) {

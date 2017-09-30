@@ -7,8 +7,8 @@ import (
 	"github.com/therecipe/qt/widgets"
 )
 
-func NewReltabWidget(f *macho.File) widgets.QWidget_ITF {
-	reltabModel := NewReltabModel(f)
+func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
+	reltabModel := NewReltabModel(f, lookup)
 
 	seclist := widgets.NewQListView(nil)
 	seclist.SetModel(reltabModel.Sections)

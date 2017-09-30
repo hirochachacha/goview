@@ -14,7 +14,7 @@ type ReltabModel struct {
 	reltabs  []core.QAbstractItemModel_ITF
 }
 
-func NewReltabModel(f *macho.File) *ReltabModel {
+func NewReltabModel(f *macho.File, lookup symLookup) *ReltabModel {
 	m := new(ReltabModel)
 
 	list := gui.NewQStandardItemModel(nil)
@@ -26,7 +26,7 @@ func NewReltabModel(f *macho.File) *ReltabModel {
 			gui.NewQStandardItem2(fmt.Sprintf("%d (%s,%s) (%d)", i+1, s.Seg, s.Name, len(s.Relocs))),
 		)
 
-		reltab := newReltabModel(f, s.Relocs, nil)
+		reltab := newReltabModel(f, s.Relocs, nil, lookup)
 
 		proxy := core.NewQSortFilterProxyModel(nil)
 		proxy.SetSourceModel(reltab)
@@ -50,7 +50,7 @@ func (m *ReltabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 	return nil
 }
 
-func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.Section) core.QAbstractItemModel_ITF {
+func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.Section, lookup symLookup) core.QAbstractItemModel_ITF {
 	header := []string{"Address", "Value", "Type", "Length", "PC Relative", "Extern", "Scattered"}
 
 	m := core.NewQAbstractTableModel(nil)
@@ -94,7 +94,7 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.
 					val = fmt.Sprintf("%#016x+%#016x (%s,%s)", r.Addr, sect.Addr, sect.Seg, sect.Name)
 				}
 			case 1: // Value
-				val = relocValueString(f, r)
+				val = relocValueString(f, r, lookup)
 			case 2: // Type
 				val = relocTypeString(r.Type, f.Cpu)
 			case 3: // Length
@@ -118,10 +118,16 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.
 	return m
 }
 
-func relocValueString(f *macho.File, r macho.Reloc) string {
+func relocValueString(f *macho.File, r macho.Reloc, lookup func(addr uint64) (string, uint64)) string {
 	switch {
 	case r.Scattered:
-		// TODO
+		addr := uint64(r.Value)
+		if s, base := lookup(addr); s != "" {
+			if base == addr {
+				return fmt.Sprintf("%#016x (%s)", r.Value, s)
+			}
+			return fmt.Sprintf("%#016x (%s%+d)", r.Value, s, addr-base)
+		}
 		return fmt.Sprintf("%#016x (?)", r.Value)
 	case r.Extern:
 		var syms []macho.Symbol
@@ -176,32 +182,44 @@ func relocLenString(len uint8) string {
 	}
 }
 
-func relocDataString(f *macho.File, r macho.Reloc, data []byte, off uint64) string {
-	var val uint64
+func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64, data []byte) string {
+	var uval uint64
+	var ival int64
 	switch len(data) {
 	case 0:
-		val = uint64(data[0])
+		val := data[0]
+		uval = uint64(val)
+		ival = int64(int8(val))
 	case 2:
-		val = uint64(f.ByteOrder.Uint16(data))
+		val := f.ByteOrder.Uint16(data)
+		uval = uint64(val)
+		ival = int64(int16(val))
 	case 4:
-		val = uint64(f.ByteOrder.Uint32(data))
+		val := f.ByteOrder.Uint32(data)
+		uval = uint64(val)
+		ival = int64(int32(val))
 	case 8:
-		val = f.ByteOrder.Uint64(data)
+		val := f.ByteOrder.Uint64(data)
+		uval = val
+		ival = int64(val)
 	default:
 		panic("unreachable")
 	}
 
 	var suffix string
 
-	if val != 0 {
+	if uval != 0 {
 		switch {
 		case r.Scattered:
-			// TODO
-			suffix = " (?)"
+			suffix = fmt.Sprintf(" (addend: %d)", int64(r.Value)-ival)
 		case r.Extern:
-			suffix = fmt.Sprintf(" (addend: %+d)", val)
+			if f.Cpu == macho.CpuAmd64 {
+				suffix = fmt.Sprintf(" (addend: %d)", ival)
+			} else {
+				suffix = fmt.Sprintf(" (addend: %d)", int64(s.Addr)-ival)
+			}
 		default:
-			suffix = fmt.Sprintf(" (addr: %#016x)", val)
+			suffix = fmt.Sprintf(" (addr: %#016x)", uval)
 		}
 	}
 

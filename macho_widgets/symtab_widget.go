@@ -14,8 +14,8 @@ import (
 // |___|___|___|
 // |           |
 // |           |
-func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
-	symtabModel := NewSymtabModel(f)
+func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) widgets.QWidget_ITF {
+	symtabModel := NewSymtabModel(f, ssyms, symAddrInfo, lookup)
 
 	search := widgets.NewQLineEdit(nil)
 	search.SetPlaceholderText("Search ...")
