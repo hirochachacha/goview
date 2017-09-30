@@ -2,10 +2,14 @@ package macho_widgets
 
 import (
 	"debug/macho"
+	"encoding/binary"
 	"fmt"
 	"sort"
 	"strings"
 
+	"golang.org/x/arch/arm/armasm"
+	"golang.org/x/arch/arm64/arm64asm"
+	"golang.org/x/arch/ppc64/ppc64asm"
 	"golang.org/x/arch/x86/x86asm"
 
 	"github.com/therecipe/qt/core"
@@ -159,73 +163,65 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 
 						addr := sym.Value
 						info := symAddrInfo[addr]
-						switch f.Cpu {
-						case macho.Cpu386, macho.CpuAmd64:
-							mode := 32
-							if f.Cpu == macho.CpuAmd64 {
-								mode = 64
-							}
-							code := make([]byte, info.Size)
-							n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
-							if n != len(code) || err != nil {
-								// TODO warning
-								return nil
-							}
 
-							for len(code) != 0 {
-								inst, err := x86asm.Decode(code, mode)
-								if err != nil {
-									// TODO warning
-									return nil
+						code := make([]byte, info.Size)
+						n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
+						if n != len(code) || err != nil {
+							// TODO warning
+							return nil
+						}
+
+						lookup := func(addr uint64) (string, uint64) {
+							j := sort.Search(len(ssyms), func(i int) bool {
+								return addr < ssyms[i].Value
+							})
+							if j > 0 {
+								sym := ssyms[j-1]
+								if sym.Value != 0 && sym.Value <= addr && addr <= sym.Value+info.Size {
+									return sym.Name, sym.Value
 								}
-
-								addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
-
-								asmtree.AppendRow([]*gui.QStandardItem{
-									addrItem,
-									gui.NewQStandardItem2(fmt.Sprintf("% x", code[:inst.Len])),
-									gui.NewQStandardItem2(x86asm.GNUSyntax(inst, addr, func(taddr uint64) (string, uint64) {
-										j := sort.Search(len(ssyms), func(i int) bool {
-											return addr < ssyms[i].Value
-										})
-										if j > 0 {
-											sym := ssyms[j-1]
-											if sym.Value != 0 && sym.Value <= addr && addr <= sym.Value+info.Size {
-												return sym.Name, sym.Value
-											}
-										}
-										return "", 0
-									})),
-								})
-
-								for i := range info.Relocs {
-									r := info.Relocs[i]
-									s := info.RelocSections[i]
-									raddr := s.Addr + uint64(r.Addr)
-									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(inst.Len) {
-										rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
-										addrItem.AppendRow([]*gui.QStandardItem{
-											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-											gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
-											gui.NewQStandardItem2(relocValueString(f, r)),
-											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
-										})
-									}
-								}
-
-								code = code[inst.Len:]
-
-								addr += uint64(inst.Len)
 							}
-						case macho.CpuArm:
-							// TODO
-						case macho.CpuArm | 0x01000000:
-							// TODO
-						case macho.CpuPpc64:
-							// TODO
+							return "", 0
+						}
+
+						disasm := disasmFunc(f.Cpu, f.ByteOrder, lookup)
+						if disasm == nil {
+							// TODO warning
+							return nil
+						}
+
+						for len(code) != 0 {
+							syntax, instLen := disasm(code, addr)
+
+							addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
+
+							asmtree.AppendRow([]*gui.QStandardItem{
+								addrItem,
+								gui.NewQStandardItem2(fmt.Sprintf("% x", code[:instLen])),
+								gui.NewQStandardItem2(syntax),
+							})
+
+							for i := range info.Relocs {
+								r := info.Relocs[i]
+								s := info.RelocSections[i]
+								raddr := s.Addr + uint64(r.Addr)
+								if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(instLen) {
+									rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
+									addrItem.AppendRow([]*gui.QStandardItem{
+										gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
+										gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
+										gui.NewQStandardItem2(relocValueString(f, r)),
+										gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
+										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
+										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
+										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
+									})
+								}
+							}
+
+							code = code[instLen:]
+
+							addr += uint64(instLen)
 						}
 
 						return asmtree
@@ -501,4 +497,56 @@ func (v byAddr) Less(i, j int) bool {
 
 func (v byAddr) Swap(i, j int) {
 	v[i], v[j] = v[j], v[i]
+}
+
+func disasmFunc(cpu macho.Cpu, bo binary.ByteOrder, lookup func(uint64) (string, uint64)) func(code []byte, pc uint64) (string, int) {
+	switch cpu {
+	case macho.Cpu386:
+		return func(code []byte, pc uint64) (string, int) {
+			inst, err := x86asm.Decode(code, 32)
+			if err != nil {
+				return "?", 1
+			}
+			syntax := x86asm.GNUSyntax(inst, pc, x86asm.SymLookup(lookup))
+			return syntax, inst.Len
+		}
+	case macho.CpuAmd64:
+		return func(code []byte, pc uint64) (string, int) {
+			inst, err := x86asm.Decode(code, 64)
+			if err != nil {
+				return "?", 1
+			}
+			syntax := x86asm.GNUSyntax(inst, pc, x86asm.SymLookup(lookup))
+			return syntax, inst.Len
+		}
+	case macho.CpuArm:
+		return func(code []byte, pc uint64) (string, int) {
+			inst, err := armasm.Decode(code, armasm.ModeARM)
+			if err != nil {
+				return "?", 1
+			}
+			syntax := armasm.GNUSyntax(inst)
+			return syntax, inst.Len
+		}
+	case macho.CpuArm | 0x01000000:
+		return func(code []byte, pc uint64) (string, int) {
+			inst, err := arm64asm.Decode(code)
+			if err != nil {
+				return "?", 4
+			}
+			syntax := arm64asm.GNUSyntax(inst)
+			return syntax, 4
+		}
+	case macho.CpuPpc64:
+		return func(code []byte, pc uint64) (string, int) {
+			inst, err := ppc64asm.Decode(code, bo)
+			if err != nil {
+				return "?", 1
+			}
+			syntax := ppc64asm.GNUSyntax(inst)
+			return syntax, inst.Len
+		}
+	}
+
+	return nil
 }
