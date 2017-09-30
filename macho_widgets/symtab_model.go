@@ -344,9 +344,15 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 	desc := sym.Desc
 	var vals []string
 	if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
-		v := desc & REFERENCE_TYPE
-		vals = append(vals, fmt.Sprintf("%#04x (%s)", v, ReferenceType(v)))
-		desc ^= v
+		if f.Type == macho.TypeObj && sym.Type&N_TYPE == N_UNDF && sym.Value != 0 { // common symbol
+			v := desc & (0x0f << 8)
+			vals = append(vals, fmt.Sprintf("%#04x (alignment: %d)", v, v>>7))
+			desc ^= v
+		} else {
+			v := desc & REFERENCE_TYPE
+			vals = append(vals, fmt.Sprintf("%#04x (%s)", v, ReferenceType(v)))
+			desc ^= v
+		}
 	}
 	if desc&N_ARM_THUMB_DEF != 0 {
 		vals = append(vals, "0x0008 (N_ARM_THUMB_DEF)")
@@ -362,11 +368,6 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 		if desc&N_NO_DEAD_STRIP != 0 {
 			vals = append(vals, "0x0020 (N_NO_DEAD_STRIP)")
 			desc ^= N_NO_DEAD_STRIP
-		}
-		if sym.Type&N_TYPE == N_UNDF && sym.Value != 0 { // common symbol
-			v := desc & (0x0f << 8)
-			vals = append(vals, fmt.Sprintf("%#04x (alignment: %d)", v, v>>7))
-			desc ^= v
 		}
 	} else {
 		if desc&N_DESC_DISCARDED != 0 {
