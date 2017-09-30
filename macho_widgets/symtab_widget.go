@@ -20,6 +20,8 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 	search := widgets.NewQLineEdit(nil)
 	search.SetPlaceholderText("Search ...")
 
+	// TODO add combobox for kind C, T, D, S, etc ...
+
 	symtab := widgets.NewQTableView(nil)
 	symtab.SetModel(symtabModel.Symtab)
 	symtab.VerticalHeader().SetDefaultSectionSize(30)

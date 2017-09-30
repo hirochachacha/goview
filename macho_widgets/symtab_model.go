@@ -129,6 +129,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
+// TODO create clickable links
 func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {

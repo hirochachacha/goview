@@ -14,6 +14,8 @@ func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
 	seclist.SetModel(reltabModel.Sections)
 	seclist.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
+	// TODO add toggle button that can switch relocated (address offset/address)
+
 	reltab := widgets.NewQTableView(nil)
 	reltab.VerticalHeader().SetVisible(false)
 	reltab.VerticalHeader().SetDefaultSectionSize(20)
