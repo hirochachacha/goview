@@ -156,10 +156,12 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 						asmtree.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
 						asmtree.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
 						asmtree.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Value"))
-						asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
-						asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
-						asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
-						asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
+						if f.Type == macho.TypeObj {
+							asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
+							asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
+							asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
+							asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
+						}
 
 						addr := sym.Value
 						info := symAddrInfo[addr]
@@ -201,21 +203,23 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 								gui.NewQStandardItem2(syntax),
 							})
 
-							for i := range info.Relocs {
-								r := info.Relocs[i]
-								s := info.RelocSections[i]
-								raddr := s.Addr + uint64(r.Addr)
-								if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(instLen) {
-									rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
-									addrItem.AppendRow([]*gui.QStandardItem{
-										gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-										gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
-										gui.NewQStandardItem2(relocValueString(f, r)),
-										gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
-										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
-										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
-										gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
-									})
+							if f.Type == macho.TypeObj {
+								for i := range info.Relocs {
+									r := info.Relocs[i]
+									s := info.RelocSections[i]
+									raddr := s.Addr + uint64(r.Addr)
+									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(instLen) {
+										rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
+										addrItem.AppendRow([]*gui.QStandardItem{
+											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
+											gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
+											gui.NewQStandardItem2(relocValueString(f, r)),
+											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
+										})
+									}
 								}
 							}
 
