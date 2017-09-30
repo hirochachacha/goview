@@ -49,18 +49,14 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		reltab.SetModel(symtabModel.Reltab(current))
 	})
 
-	asmtab := widgets.NewQTableView(nil)
-	asmtab.VerticalHeader().SetVisible(false)
-	asmtab.VerticalHeader().SetDefaultSectionSize(20)
-	asmtab.HorizontalHeader().SetStretchLastSection(true)
-	asmtab.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
-	asmtab.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
-	asmtab.SetShowGrid(false)
-	asmtab.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
-	asmtab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
+	asmtree := widgets.NewQTreeView(nil)
+	asmtree.Header().SetStretchLastSection(true)
+	asmtree.Header().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
+	asmtree.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
+	asmtree.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
 	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
-		asmtab.SetModel(symtabModel.Asmtab(current))
+		asmtree.SetModel(symtabModel.Asmtree(current))
 	})
 
 	symtabGroup := widgets.NewQWidget(nil, 0)
@@ -72,21 +68,9 @@ func NewSymtabWidget(f *macho.File) widgets.QWidget_ITF {
 		symtabGroup.SetLayout(vlayout)
 	}
 
-	var ra widgets.QWidget_ITF
-	if f.Type == macho.TypeObj {
-		tab := widgets.NewQTabWidget(nil)
-		if f.Type == macho.TypeObj {
-			tab.AddTab(reltab, "Relocations")
-		}
-		tab.AddTab(asmtab, "Assembly")
-		ra = tab
-	} else {
-		ra = asmtab
-	}
-
 	sp := widgets.NewQSplitter2(core.Qt__Vertical, nil)
 	sp.AddWidget(symtabGroup)
-	sp.AddWidget(ra)
+	sp.AddWidget(asmtree)
 
 	w := widgets.NewQWidget(nil, 0)
 	layout := widgets.NewQVBoxLayout()

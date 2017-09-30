@@ -13,9 +13,9 @@ import (
 )
 
 type SymtabModel struct {
-	Symtab core.QAbstractItemModel_ITF
-	asmtab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
-	reltab func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	Symtab  core.QAbstractItemModel_ITF
+	asmtree func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	reltab  func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 }
 
 func NewSymtabModel(f *macho.File) *SymtabModel {
@@ -28,14 +28,14 @@ func NewSymtabModel(f *macho.File) *SymtabModel {
 
 	info := m.makeSymAddrInfo(f, ssyms)
 
-	asmtab := m.newAsmtab(f, ssyms, info)
+	asmtree := m.newAsmtree(f, ssyms, info)
 
 	reltab := m.newReltabModel(f, info)
 
 	return &SymtabModel{
-		Symtab: symtab,
-		asmtab: asmtab,
-		reltab: reltab,
+		Symtab:  symtab,
+		asmtree: asmtree,
+		reltab:  reltab,
 	}
 }
 
@@ -47,8 +47,8 @@ func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 	return m.reltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
-func (m *SymtabModel) Asmtab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-	return m.asmtab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
+func (m *SymtabModel) Asmtree(index *core.QModelIndex) core.QAbstractItemModel_ITF {
+	return m.asmtree(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
 func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
@@ -130,7 +130,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
+func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {
 		syms = f.Symtab.Syms
@@ -148,10 +148,14 @@ func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInf
 					sect := f.Sections[sym.Sect-1]
 
 					if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
-						asmtab := gui.NewQStandardItemModel(nil)
-						asmtab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
-						asmtab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
-						asmtab.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Instruction"))
+						asmtree := gui.NewQStandardItemModel(nil)
+						asmtree.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
+						asmtree.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
+						asmtree.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Value"))
+						asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
+						asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
+						asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
+						asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
 
 						addr := sym.Value
 						info := symAddrInfo[addr]
@@ -175,8 +179,10 @@ func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInf
 									return nil
 								}
 
-								asmtab.AppendRow([]*gui.QStandardItem{
-									gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr)),
+								addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
+
+								asmtree.AppendRow([]*gui.QStandardItem{
+									addrItem,
 									gui.NewQStandardItem2(fmt.Sprintf("% x", code[:inst.Len])),
 									gui.NewQStandardItem2(x86asm.GNUSyntax(inst, addr, func(taddr uint64) (string, uint64) {
 										j := sort.Search(len(ssyms), func(i int) bool {
@@ -192,6 +198,24 @@ func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInf
 									})),
 								})
 
+								for i := range info.Relocs {
+									r := info.Relocs[i]
+									s := info.RelocSections[i]
+									raddr := s.Addr + uint64(r.Addr)
+									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(inst.Len) {
+										rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
+										addrItem.AppendRow([]*gui.QStandardItem{
+											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
+											gui.NewQStandardItem2(relocDataString(f, r, rcode, raddr-addr)),
+											gui.NewQStandardItem2(relocValueString(f, r)),
+											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
+										})
+									}
+								}
+
 								code = code[inst.Len:]
 
 								addr += uint64(inst.Len)
@@ -204,7 +228,7 @@ func (m *SymtabModel) newAsmtab(f *macho.File, ssyms []*macho.Symbol, symAddrInf
 							// TODO
 						}
 
-						return asmtab
+						return asmtree
 					}
 				}
 			}
