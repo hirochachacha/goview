@@ -87,12 +87,7 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.
 
 			switch index.Column() {
 			case 0: // Addr
-				if len(relocSections) == 0 {
-					val = fmt.Sprintf("%#016x", r.Addr)
-				} else {
-					sect := relocSections[row]
-					val = fmt.Sprintf("%#016x+%#016x (%s,%s)", r.Addr, sect.Addr, sect.Seg, sect.Name)
-				}
+				val = fmt.Sprintf("%#016x", r.Addr)
 			case 1: // Value
 				val = relocValueString(f, r, lookup)
 			case 2: // Type
@@ -126,7 +121,7 @@ func relocValueString(f *macho.File, r macho.Reloc, lookup func(addr uint64) (st
 			if base == addr {
 				return fmt.Sprintf("%#016x (%s)", r.Value, s)
 			}
-			return fmt.Sprintf("%#016x (%s%+d)", r.Value, s, addr-base)
+			return fmt.Sprintf("%#016x (%s%+x)", r.Value, s, addr-base)
 		}
 		return fmt.Sprintf("%#016x (?)", r.Value)
 	case r.Extern:
@@ -182,7 +177,7 @@ func relocLenString(len uint8) string {
 	}
 }
 
-func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64, data []byte) string {
+func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64, data []byte, lookup symLookup) string {
 	var uval uint64
 	var ival int64
 	switch len(data) {
@@ -211,15 +206,22 @@ func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64,
 	if uval != 0 {
 		switch {
 		case r.Scattered:
-			suffix = fmt.Sprintf(" (addend: %d)", int64(r.Value)-ival)
+			suffix = fmt.Sprintf(" (addend: %+x)", int64(r.Value)-ival)
 		case r.Extern:
 			if f.Cpu == macho.CpuAmd64 {
-				suffix = fmt.Sprintf(" (addend: %d)", ival)
+				suffix = fmt.Sprintf(" (addend: %+x)", ival)
 			} else {
-				suffix = fmt.Sprintf(" (addend: %d)", int64(s.Addr)-ival)
+				suffix = fmt.Sprintf(" (addend: %+x)", int64(s.Addr)-ival)
 			}
 		default:
-			suffix = fmt.Sprintf(" (addr: %#016x)", uval)
+			addr := uval
+			if s, base := lookup(addr); s != "" {
+				if base == addr {
+					return fmt.Sprintf(" (addr: %#016x (%s))", addr, s)
+				}
+				return fmt.Sprintf(" (addr: %#016x (%s%+x))", addr, s, addr-base)
+			}
+			suffix = fmt.Sprintf(" (addr: %#016x)", addr)
 		}
 	}
 

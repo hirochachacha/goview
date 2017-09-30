@@ -146,21 +146,21 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 				if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
 					sect := f.Sections[sym.Sect-1]
 
+					asmtree := gui.NewQStandardItemModel(nil)
+					asmtree.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
+					asmtree.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
+					asmtree.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Value"))
+					if f.Type == macho.TypeObj {
+						asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
+						asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
+						asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
+						asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
+					}
+
+					addr := sym.Value
+					info := symAddrInfo[addr]
+
 					if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
-						asmtree := gui.NewQStandardItemModel(nil)
-						asmtree.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
-						asmtree.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
-						asmtree.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Value"))
-						if f.Type == macho.TypeObj {
-							asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
-							asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
-							asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
-							asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
-						}
-
-						addr := sym.Value
-						info := symAddrInfo[addr]
-
 						code := make([]byte, info.Size)
 						n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
 						if n != len(code) || err != nil {
@@ -191,10 +191,10 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 									s := info.RelocSections[i]
 									raddr := s.Addr + uint64(r.Addr)
 									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(instLen) {
-										rcode := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
+										rdata := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
 										addrItem.AppendRow([]*gui.QStandardItem{
 											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rcode)),
+											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rdata, lookup)),
 											gui.NewQStandardItem2(relocValueString(f, r, lookup)),
 											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
 											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
@@ -209,9 +209,55 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 
 							addr += uint64(instLen)
 						}
+					} else {
+						data := make([]byte, info.Size)
+						n, err := sect.ReadAt(data, int64(sym.Value-sect.Addr))
+						if n != len(data) || err != nil {
+							// TODO warning
+							return nil
+						}
 
-						return asmtree
+						for len(data) != 0 {
+							size := 8
+							if len(data) < 8 {
+								size = len(data)
+							}
+
+							addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
+
+							asmtree.AppendRow([]*gui.QStandardItem{
+								addrItem,
+								gui.NewQStandardItem2(fmt.Sprintf("% x", data[:size])),
+								gui.NewQStandardItem2(ascii(data[:size])),
+							})
+
+							if f.Type == macho.TypeObj {
+								for i := range info.Relocs {
+									r := info.Relocs[i]
+									s := info.RelocSections[i]
+									raddr := s.Addr + uint64(r.Addr)
+									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(size) {
+										rdata := data[raddr-addr : raddr-addr+uint64(1<<r.Len)]
+										addrItem.AppendRow([]*gui.QStandardItem{
+											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
+											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rdata, lookup)),
+											gui.NewQStandardItem2(relocValueString(f, r, lookup)),
+											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
+											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
+										})
+									}
+								}
+							}
+
+							data = data[size:]
+
+							addr += uint64(size)
+						}
 					}
+
+					return asmtree
 				}
 			}
 		}
@@ -453,4 +499,16 @@ func disasmFunc(cpu macho.Cpu, bo binary.ByteOrder, lookup symLookup) func(code 
 	}
 
 	return nil
+}
+
+func ascii(data []byte) string {
+	ret := make([]byte, len(data))
+	for i, c := range data {
+		if 32 <= c && c < 127 {
+			ret[i] = c
+		} else {
+			ret[i] = '.'
+		}
+	}
+	return string(ret)
 }
