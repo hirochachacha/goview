@@ -17,13 +17,13 @@ import (
 func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) widgets.QWidget_ITF {
 	symtabModel := NewSymtabModel(f, ssyms, symAddrInfo, lookup)
 
-	search := widgets.NewQLineEdit(nil)
-	search.SetPlaceholderText("Search...")
+	externOnly := widgets.NewQCheckBox2("Extern Only", nil)
 
-	searchType := widgets.NewQComboBox(nil)
-	searchType.AddItems([]string{"(*) Any", "(U)undefined", "(A)bsolute", "(T)ext", "(D)ata", "(B)ss", "(C)ommon", "(-) debug", "(S) other", "(I)ndirect"})
+	symbolType := widgets.NewQComboBox(nil)
+	symbolType.AddItems([]string{"(*) Any", "(U)undefined", "(A)bsolute", "(T)ext", "(D)ata", "(B)ss", "(C)ommon", "(-) debug", "(S) other", "(I)ndirect"})
 
-	externCheck := widgets.NewQCheckBox2("Extern Only", nil)
+	searchName := widgets.NewQLineEdit(nil)
+	searchName.SetPlaceholderText("Search...")
 
 	symtab := widgets.NewQTableView(nil)
 	symtab.SetModel(symtabModel.Symtab)
@@ -35,18 +35,18 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 	symtab.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
 	symtab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
-	search.ConnectEditingFinished(func() {
-		symtabModel.SetFilterName(search.Text())
+	externOnly.ConnectClicked(func(checked bool) {
+		symtabModel.SetFilterExternOnly(checked)
 	})
 
-	searchType.ConnectCurrentIndexChanged2(func(text string) {
+	symbolType.ConnectCurrentIndexChanged2(func(text string) {
 		if 3 <= len(text) && text[0] == '(' && text[2] == ')' {
 			symtabModel.SetFilterType(text[1])
 		}
 	})
 
-	externCheck.ConnectClicked(func(checked bool) {
-		symtabModel.SetFilterExternOnly(checked)
+	searchName.ConnectEditingFinished(func() {
+		symtabModel.SetFilterName(searchName.Text())
 	})
 
 	asmtree := widgets.NewQTreeView(nil)
@@ -62,9 +62,9 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 	symtabGroup := widgets.NewQWidget(nil, 0)
 	{
 		hlayout := widgets.NewQHBoxLayout()
-		hlayout.AddWidget(search, 0, 0)
-		hlayout.AddWidget(searchType, 0, 0)
-		hlayout.AddWidget(externCheck, 0, 0)
+		hlayout.AddWidget(externOnly, 0, 0)
+		hlayout.AddWidget(symbolType, 0, 0)
+		hlayout.AddWidget(searchName, 0, 0)
 		hlayout.SetContentsMargins(0, 0, 0, 0)
 
 		vlayout := widgets.NewQVBoxLayout()
