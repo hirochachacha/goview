@@ -49,21 +49,6 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 		symtabModel.SetFilterExternOnly(checked)
 	})
 
-	reltab := widgets.NewQTableView(nil)
-	reltab.VerticalHeader().SetVisible(false)
-	reltab.VerticalHeader().SetDefaultSectionSize(20)
-	reltab.HorizontalHeader().SetDefaultAlignment(core.Qt__AlignLeft)
-	reltab.HorizontalHeader().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
-	reltab.SetShowGrid(false)
-	reltab.SetAlternatingRowColors(true)
-	reltab.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
-	reltab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
-	reltab.SetSortingEnabled(true)
-
-	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
-		reltab.SetModel(symtabModel.Reltab(current))
-	})
-
 	asmtree := widgets.NewQTreeView(nil)
 	asmtree.Header().SetStretchLastSection(true)
 	asmtree.Header().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)

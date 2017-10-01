@@ -21,7 +21,6 @@ const SymbolItemRole = core.Qt__UserRole + 1
 type SymtabModel struct {
 	Symtab       core.QAbstractItemModel_ITF
 	asmtree      func(index *core.QModelIndex) core.QAbstractItemModel_ITF
-	reltab       func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 	filterType   byte
 	filterExtern bool
 }
@@ -68,11 +67,8 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 
 	asmtree := m.newAsmtree(f, ssyms, symAddrInfo, lookup)
 
-	reltab := m.newReltabModel(f, symAddrInfo, lookup)
-
 	m.Symtab = symtab
 	m.asmtree = asmtree
-	m.reltab = reltab
 
 	return m
 }
@@ -97,10 +93,6 @@ func (m *SymtabModel) SetFilterExternOnly(b bool) {
 
 func (m *SymtabModel) FilterExternOnly() bool {
 	return m.filterExtern
-}
-
-func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-	return m.reltab(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
 }
 
 func (m *SymtabModel) Asmtree(index *core.QModelIndex) core.QAbstractItemModel_ITF {
@@ -333,47 +325,6 @@ func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrIn
 
 					return asmtree
 				}
-			}
-		}
-		return nil
-	}
-}
-
-func (m *SymtabModel) newReltabModel(f *macho.File, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-
-	reltabCache := make(map[int]core.QAbstractItemModel_ITF, len(syms))
-
-	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-		if !index.IsValid() {
-			return nil
-		}
-		row := index.Row()
-		if 0 <= row && row < len(syms) {
-			if reltab, ok := reltabCache[row]; ok {
-				return reltab
-			}
-
-			sym := &syms[row]
-
-			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-				var reltab core.QAbstractItemModel_ITF
-
-				if symInfo := symAddrInfo[sym.Value]; symInfo != nil {
-					reltab = newReltabModel(f, symInfo.Relocs, symInfo.RelocSections, lookup)
-					if reltab != nil {
-						proxy := core.NewQSortFilterProxyModel(nil)
-						proxy.SetSourceModel(reltab)
-						reltab = proxy
-					}
-				}
-
-				reltabCache[row] = reltab
-
-				return reltab
 			}
 		}
 		return nil
