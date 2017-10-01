@@ -14,7 +14,7 @@ func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
 	seclist.SetModel(reltabModel.Sections)
 	seclist.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
-	// TODO add toggle button that can switch relocated (address offset/address)
+	addrCheck := widgets.NewQCheckBox2("Calculate Address", nil)
 
 	reltab := widgets.NewQTableView(nil)
 	reltab.VerticalHeader().SetVisible(false)
@@ -29,11 +29,38 @@ func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
 
 	seclist.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
 		reltab.SetModel(reltabModel.Reltab(current))
+		if addrCheck.IsChecked() {
+			reltab.SetColumnHidden(0, false)
+			reltab.SetColumnHidden(1, true)
+		} else {
+			reltab.SetColumnHidden(0, true)
+			reltab.SetColumnHidden(1, false)
+		}
 	})
+
+	addrCheck.ConnectClicked(func(checked bool) {
+		if checked {
+			reltab.SetColumnHidden(0, false)
+			reltab.SetColumnHidden(1, true)
+		} else {
+			reltab.SetColumnHidden(0, true)
+			reltab.SetColumnHidden(1, false)
+		}
+	})
+
+	reltabGroup := widgets.NewQWidget(nil, 0)
+	{
+		vlayout := widgets.NewQVBoxLayout()
+		vlayout.AddWidget(addrCheck, 0, 0)
+		vlayout.AddWidget(reltab, 0, 0)
+		vlayout.SetContentsMargins(0, 0, 0, 0)
+
+		reltabGroup.SetLayout(vlayout)
+	}
 
 	sp := widgets.NewQSplitter(nil)
 	sp.AddWidget(seclist)
-	sp.AddWidget(reltab)
+	sp.AddWidget(reltabGroup)
 	sp.SetStretchFactor(1, 2)
 
 	w := widgets.NewQWidget(nil, 0)

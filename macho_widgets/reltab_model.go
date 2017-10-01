@@ -26,7 +26,7 @@ func NewReltabModel(f *macho.File, lookup symLookup) *ReltabModel {
 			gui.NewQStandardItem2(fmt.Sprintf("%d (%s,%s) (%d)", i+1, s.Seg, s.Name, len(s.Relocs))),
 		)
 
-		reltab := newReltabModel(f, s.Relocs, nil, lookup)
+		reltab := m.newReltabModel(f, s, lookup)
 
 		proxy := core.NewQSortFilterProxyModel(nil)
 		proxy.SetSourceModel(reltab)
@@ -50,17 +50,17 @@ func (m *ReltabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_IT
 	return nil
 }
 
-func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.Section, lookup symLookup) core.QAbstractItemModel_ITF {
-	header := []string{"Address", "Value", "Type", "Length", "PC Relative", "Extern", "Scattered"}
+func (m *ReltabModel) newReltabModel(f *macho.File, s *macho.Section, lookup symLookup) core.QAbstractItemModel_ITF {
+	header := []string{"Address", "Address Offset", "Value", "Type", "Length", "PC Relative", "Extern", "Scattered"}
 
-	m := core.NewQAbstractTableModel(nil)
-	m.ConnectRowCount(func(parent *core.QModelIndex) int {
-		return len(relocs)
+	reltab := core.NewQAbstractTableModel(nil)
+	reltab.ConnectRowCount(func(parent *core.QModelIndex) int {
+		return len(s.Relocs)
 	})
-	m.ConnectColumnCount(func(parent *core.QModelIndex) int {
+	reltab.ConnectColumnCount(func(parent *core.QModelIndex) int {
 		return len(header)
 	})
-	m.ConnectHeaderData(func(section int, orientation core.Qt__Orientation, role int) *core.QVariant {
+	reltab.ConnectHeaderData(func(section int, orientation core.Qt__Orientation, role int) *core.QVariant {
 		if role == int(core.Qt__DisplayRole) {
 			var val string
 			switch orientation {
@@ -73,34 +73,36 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.
 		}
 		return core.NewQVariant()
 	})
-	m.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
+	reltab.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
 		if role != int(core.Qt__DisplayRole) {
 			return core.NewQVariant()
 		}
 		if !index.IsValid() {
 			return core.NewQVariant()
 		}
-		if row := index.Row(); 0 <= row && row < len(relocs) {
-			r := relocs[row]
+		if row := index.Row(); 0 <= row && row < len(s.Relocs) {
+			r := s.Relocs[row]
 
 			var val string
 
 			switch index.Column() {
 			case 0: // Addr
+				val = fmt.Sprintf("%#016x", s.Addr+uint64(r.Addr))
+			case 1: // Addr Offset
 				val = fmt.Sprintf("%#016x", r.Addr)
-			case 1: // Value
+			case 2: // Value
 				val = relocValueString(f, r, lookup)
-			case 2: // Type
+			case 3: // Type
 				val = relocTypeString(r.Type, f.Cpu)
-			case 3: // Length
+			case 4: // Length
 				val = relocLenString(r.Len)
-			case 4: // Pcrel
+			case 5: // Pcrel
 				val = fmt.Sprintf("%t", r.Pcrel)
-			case 5: // Extern
+			case 6: // Extern
 				if !r.Scattered {
 					val = fmt.Sprintf("%t", r.Extern)
 				}
-			case 6: // Scattered
+			case 7: // Scattered
 				if r.Scattered {
 					val = fmt.Sprintf("%t", r.Scattered)
 				}
@@ -110,7 +112,7 @@ func newReltabModel(f *macho.File, relocs []macho.Reloc, relocSections []*macho.
 		return core.NewQVariant()
 	})
 
-	return m
+	return reltab
 }
 
 func relocValueString(f *macho.File, r macho.Reloc, lookup func(addr uint64) (string, uint64)) string {
