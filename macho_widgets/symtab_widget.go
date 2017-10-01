@@ -18,9 +18,12 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 	symtabModel := NewSymtabModel(f, ssyms, symAddrInfo, lookup)
 
 	search := widgets.NewQLineEdit(nil)
-	search.SetPlaceholderText("Search ...")
+	search.SetPlaceholderText("Search...")
 
-	// TODO add combobox for kind C, T, D, S, etc ...
+	searchType := widgets.NewQComboBox(nil)
+	searchType.AddItems([]string{"(*) Any", "(U)undefined", "(A)bsolute", "(T)ext", "(D)ata", "(B)ss", "(C)ommon", "(-) debug", "(S) other", "(I)ndirect"})
+
+	externCheck := widgets.NewQCheckBox2("Extern Only", nil)
 
 	symtab := widgets.NewQTableView(nil)
 	symtab.SetModel(symtabModel.Symtab)
@@ -33,7 +36,17 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 	symtab.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
 
 	search.ConnectEditingFinished(func() {
-		symtabModel.SetFilter(search.Text())
+		symtabModel.SetFilterName(search.Text())
+	})
+
+	searchType.ConnectCurrentIndexChanged2(func(text string) {
+		if 3 <= len(text) && text[0] == '(' && text[2] == ')' {
+			symtabModel.SetFilterType(text[1])
+		}
+	})
+
+	externCheck.ConnectClicked(func(checked bool) {
+		symtabModel.SetFilterExternOnly(checked)
 	})
 
 	reltab := widgets.NewQTableView(nil)
@@ -63,10 +76,17 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 
 	symtabGroup := widgets.NewQWidget(nil, 0)
 	{
+		hlayout := widgets.NewQHBoxLayout()
+		hlayout.AddWidget(search, 0, 0)
+		hlayout.AddWidget(searchType, 0, 0)
+		hlayout.AddWidget(externCheck, 0, 0)
+		hlayout.SetContentsMargins(0, 0, 0, 0)
+
 		vlayout := widgets.NewQVBoxLayout()
-		vlayout.AddWidget(search, 0, 0)
+		vlayout.AddLayout(hlayout, 0)
 		vlayout.AddWidget(symtab, 0, 0)
 		vlayout.SetContentsMargins(0, 0, 0, 0)
+
 		symtabGroup.SetLayout(vlayout)
 	}
 

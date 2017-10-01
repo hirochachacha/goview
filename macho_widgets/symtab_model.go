@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"golang.org/x/arch/arm/armasm"
 	"golang.org/x/arch/arm64/arm64asm"
@@ -15,10 +16,14 @@ import (
 	"github.com/therecipe/qt/gui"
 )
 
+const SymbolItemRole = core.Qt__UserRole + 1
+
 type SymtabModel struct {
-	Symtab  core.QAbstractItemModel_ITF
-	asmtree func(index *core.QModelIndex) core.QAbstractItemModel_ITF
-	reltab  func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	Symtab       core.QAbstractItemModel_ITF
+	asmtree      func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	reltab       func(index *core.QModelIndex) core.QAbstractItemModel_ITF
+	filterType   byte
+	filterExtern bool
 }
 
 func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) *SymtabModel {
@@ -26,20 +31,72 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 
 	symtab := core.NewQSortFilterProxyModel(nil)
 	symtab.SetSourceModel(m.newSymtabModel(f))
+	symtab.ConnectFilterAcceptsRow(func(sourceRow int, sourceParent *core.QModelIndex) bool {
+		sm := symtab.SourceModel()
+
+		var typ uint8
+		var typDone bool
+
+		if m.FilterExternOnly() {
+			typ = uint8(sm.Data(sm.Index(sourceRow, 1, sourceParent), int(SymbolItemRole)).ToUInt(true))
+			typDone = true
+			if typ&N_EXT == 0 {
+				return false
+			}
+		}
+
+		fc := m.FilterType()
+		if fc != 0 && fc != '*' {
+			if !typDone {
+				typ = uint8(sm.Data(sm.Index(sourceRow, 1, sourceParent), int(SymbolItemRole)).ToUInt(true))
+			}
+			sect := uint8(sm.Data(sm.Index(sourceRow, 2, sourceParent), int(SymbolItemRole)).ToUInt(true))
+			val := sm.Data(sm.Index(sourceRow, 4, sourceParent), int(SymbolItemRole)).ToULongLong(true)
+			c := symChar(f, typ, sect, val)
+			if fc != c {
+				fc = byte(unicode.ToLower(rune(fc)))
+				if fc != c {
+					return false
+				}
+			}
+		}
+
+		name := sm.Data(sm.Index(sourceRow, 0, sourceParent), int(SymbolItemRole)).ToString()
+
+		return symtab.FilterRegExp().IndexIn(name, 0, core.QRegExp__CaretAtZero) != -1
+	})
 
 	asmtree := m.newAsmtree(f, ssyms, symAddrInfo, lookup)
 
 	reltab := m.newReltabModel(f, symAddrInfo, lookup)
 
-	return &SymtabModel{
-		Symtab:  symtab,
-		asmtree: asmtree,
-		reltab:  reltab,
-	}
+	m.Symtab = symtab
+	m.asmtree = asmtree
+	m.reltab = reltab
+
+	return m
 }
 
-func (m *SymtabModel) SetFilter(s string) {
+func (m *SymtabModel) SetFilterName(s string) {
 	m.Symtab.(*core.QSortFilterProxyModel).SetFilterRegExp2(s)
+}
+
+func (m *SymtabModel) SetFilterType(typ byte) {
+	m.filterType = typ
+	m.Symtab.(*core.QSortFilterProxyModel).InvalidateFilter()
+}
+
+func (m *SymtabModel) FilterType() byte {
+	return m.filterType
+}
+
+func (m *SymtabModel) SetFilterExternOnly(b bool) {
+	m.filterExtern = b
+	m.Symtab.(*core.QSortFilterProxyModel).InvalidateFilter()
+}
+
+func (m *SymtabModel) FilterExternOnly() bool {
+	return m.filterExtern
 }
 
 func (m *SymtabModel) Reltab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
@@ -79,51 +136,67 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 		return core.NewQVariant()
 	})
 	symtab.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
-		if role != int(core.Qt__DisplayRole) {
-			return core.NewQVariant()
-		}
-
 		sym := &syms[index.Row()]
 
-		var val string
+		switch core.Qt__ItemDataRole(role) {
+		case SymbolItemRole:
+			switch index.Column() {
+			case 0:
+				return core.NewQVariant14(sym.Name)
+			case 1:
+				return core.NewQVariant8(uint(sym.Type))
+			case 2:
+				return core.NewQVariant8(uint(sym.Sect))
+			case 3:
+				return core.NewQVariant8(uint(sym.Desc))
+			case 4:
+				return core.NewQVariant10(sym.Value)
+			}
 
-		switch index.Column() {
-		case 0:
-			val = sym.Name
-		case 1:
-			val = symTypeString(sym.Type)
-		case 2:
-			switch {
-			case sym.Sect == 0:
-				val = "0 (NO_SECT)"
-			case int(sym.Sect) <= len(f.Sections):
-				sect := f.Sections[sym.Sect-1]
-				val = fmt.Sprintf("%d (%s,%s)", sym.Sect, sect.Seg, sect.Name)
-			default:
-				val = fmt.Sprintf("%d (?)", sym.Sect)
-			}
-		case 3:
-			val = symDescString(f, sym)
-		case 4:
-			switch {
-			case sym.Type&N_STAB != 0:
-				// TODO handle stab
-				val = fmt.Sprintf("%#016x", sym.Value)
-			case sym.Type&N_TYPE == N_UNDF:
-				if sym.Value != 0 { // common symbol
-					val = fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
+			return core.NewQVariant()
+		case core.Qt__DisplayRole:
+			var val string
+
+			switch index.Column() {
+			case 0:
+				val = sym.Name
+			case 1:
+				val = symTypeString(sym.Type)
+			case 2:
+				switch {
+				case sym.Sect == 0:
+					val = "0 (NO_SECT)"
+				case int(sym.Sect) <= len(f.Sections):
+					sect := f.Sections[sym.Sect-1]
+					val = fmt.Sprintf("%d (%s,%s)", sym.Sect, sect.Seg, sect.Name)
+				default:
+					val = fmt.Sprintf("%d (?)", sym.Sect)
 				}
-			case sym.Type&N_TYPE == N_PBUD:
-				if sym.Value != 0 { // ?
-					// TODO warning
-					val = fmt.Sprintf("%d (?)", sym.Value)
+			case 3:
+				val = symDescString(f, sym)
+			case 4:
+				switch {
+				case sym.Type&N_STAB != 0:
+					// TODO handle stab
+					val = fmt.Sprintf("%#016x", sym.Value)
+				case sym.Type&N_TYPE == N_UNDF:
+					if sym.Value != 0 { // common symbol
+						val = fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
+					}
+				case sym.Type&N_TYPE == N_PBUD:
+					if sym.Value != 0 { // ?
+						// TODO warning
+						val = fmt.Sprintf("%d (?)", sym.Value)
+					}
+				default:
+					val = fmt.Sprintf("%#016x", sym.Value)
 				}
-			default:
-				val = fmt.Sprintf("%#016x", sym.Value)
 			}
+
+			return core.NewQVariant14(val)
 		}
 
-		return core.NewQVariant14(val)
+		return core.NewQVariant()
 	})
 
 	return symtab
@@ -513,4 +586,66 @@ func ascii(data []byte) string {
 		}
 	}
 	return string(ret)
+}
+
+func symChar(f *macho.File, typ uint8, sect uint8, val uint64) byte {
+	if typ&N_STAB != 0 {
+		return '-'
+	}
+	switch typ & N_TYPE {
+	case N_UNDF:
+		if val == 0 {
+			if typ&N_EXT != 0 {
+				return 'U'
+			}
+			return 'u'
+		}
+		if typ&N_EXT != 0 {
+			return 'C'
+		}
+		return 'c'
+	case N_ABS:
+		if typ&N_EXT != 0 {
+			return 'A'
+		}
+		return 'a'
+	case N_SECT:
+		if sect == 0 {
+			if typ&N_EXT != 0 {
+				return 'B'
+			}
+			return 'b'
+		}
+		if 0 <= int(sect-1) && int(sect-1) < len(f.Sections) {
+			s := f.Sections[sect-1]
+			switch {
+			case s.Seg == "__TEXT" && s.Name == "__text":
+				if typ&N_EXT != 0 {
+					return 'T'
+				}
+				return 't'
+			case s.Seg == "__DATA" && s.Name == "__data":
+				if typ&N_EXT != 0 {
+					return 'D'
+				}
+				return 'd'
+			}
+		}
+		if typ&N_EXT != 0 {
+			return 'S'
+		}
+		return 's'
+	case N_PBUD:
+		if typ&N_EXT != 0 {
+			return 'U'
+		}
+		return 'u'
+	case N_INDR:
+		if typ&N_EXT != 0 {
+			return 'I'
+		}
+		return 'i'
+	default:
+		return '?'
+	}
 }
