@@ -37,7 +37,7 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 		var typDone bool
 
 		if m.FilterExternOnly() {
-			typ = uint8(sm.Data(sm.Index(sourceRow, 1, sourceParent), int(SymbolItemRole)).ToUInt(true))
+			typ = uint8(sm.Index(sourceRow, 1, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
 			typDone = true
 			if typ&N_EXT == 0 {
 				return false
@@ -47,10 +47,10 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 		fc := m.FilterType()
 		if fc != 0 && fc != '*' {
 			if !typDone {
-				typ = uint8(sm.Data(sm.Index(sourceRow, 1, sourceParent), int(SymbolItemRole)).ToUInt(true))
+				typ = uint8(sm.Index(sourceRow, 1, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
 			}
-			sect := uint8(sm.Data(sm.Index(sourceRow, 2, sourceParent), int(SymbolItemRole)).ToUInt(true))
-			val := sm.Data(sm.Index(sourceRow, 4, sourceParent), int(SymbolItemRole)).ToULongLong(true)
+			sect := uint8(sm.Index(sourceRow, 2, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
+			val := sm.Index(sourceRow, 4, sourceParent).Data(int(SymbolItemRole)).ToULongLong(true)
 			c := symChar(f, typ, sect, val)
 			if fc != c {
 				fc = byte(unicode.ToLower(rune(fc)))
@@ -60,7 +60,7 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 			}
 		}
 
-		name := sm.Data(sm.Index(sourceRow, 0, sourceParent), int(SymbolItemRole)).ToString()
+		name := sm.Index(sourceRow, 0, sourceParent).Data(int(SymbolItemRole)).ToString()
 
 		return symtab.FilterRegExp().IndexIn(name, 0, core.QRegExp__CaretAtZero) != -1
 	})
@@ -194,7 +194,6 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-// TODO create clickable links
 func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
 	var syms []macho.Symbol
 	if f.Symtab != nil {

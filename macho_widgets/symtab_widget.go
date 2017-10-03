@@ -2,8 +2,10 @@ package macho_widgets
 
 import (
 	"debug/macho"
+	"fmt"
 
 	"github.com/therecipe/qt/core"
+	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
 )
 
@@ -49,11 +51,41 @@ func NewSymtabWidget(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint6
 		symtabModel.SetFilterName(searchName.Text())
 	})
 
+	asmtreeItemDelegate := NewHtmlItemDelegate()
+
 	asmtree := widgets.NewQTreeView(nil)
 	asmtree.Header().SetStretchLastSection(true)
 	asmtree.Header().SetSectionResizeMode(widgets.QHeaderView__ResizeToContents)
 	asmtree.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
 	asmtree.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
+
+	asmtree.SetItemDelegate(asmtreeItemDelegate)
+
+	asmtree.ConnectMousePressEvent(func(e *gui.QMouseEvent) {
+		asmtree.MousePressEventDefault(e)
+
+		pos := e.Pos()
+
+		index := asmtree.IndexAt(pos)
+		if !index.IsValid() {
+			return
+		}
+
+		ipos := asmtree.VisualRect(index).TopLeft()
+		rpos := core.NewQPoint2(pos.X()-ipos.X(), pos.Y()-ipos.Y())
+
+		html := index.Data(int(core.Qt__DisplayRole)).ToString()
+
+		doc := gui.NewQTextDocument(nil)
+		doc.SetHtml(html)
+
+		layout := doc.DocumentLayout()
+		anchor := layout.AnchorAt(core.NewQPointF2(rpos))
+
+		if len(anchor) != 0 {
+			fmt.Println(anchor)
+		}
+	})
 
 	symtab.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
 		asmtree.SetModel(symtabModel.Asmtree(current))
