@@ -116,35 +116,29 @@ func (m *ReltabModel) newReltabModel(f *macho.File, s *macho.Section, lookup sym
 }
 
 func relocValueString(f *macho.File, r macho.Reloc, lookup func(addr uint64) (string, uint64)) string {
+	suffix := " (?)"
+
 	switch {
 	case r.Scattered:
 		addr := uint64(r.Value)
-		if s, base := lookup(addr); s != "" {
-			if base == addr {
-				return fmt.Sprintf("%#016x (%s)", r.Value, s)
-			}
-			return fmt.Sprintf("%#016x (%s%+x)", r.Value, s, addr-base)
+		if s := symAddrString(addr, lookup, false); s != "" {
+			suffix = fmt.Sprintf(` (%s)`, s)
 		}
-		return fmt.Sprintf("%#016x (?)", r.Value)
+		return fmt.Sprintf("%#016x%s", r.Value, suffix)
 	case r.Extern:
-		var syms []macho.Symbol
-		if f.Symtab != nil {
-			syms = f.Symtab.Syms
-		}
-		if len(syms) < math.MaxUint32 && 0 <= r.Value && r.Value < uint32(len(syms)) {
-			return fmt.Sprintf("%d (%s)", r.Value, syms[r.Value].Name)
+		if s := symIndexString(f, r.Value); s != "" {
+			suffix = fmt.Sprintf(` (%s)`, s)
 		} else {
 			// TODO warning
-			return fmt.Sprintf("%d (?)", r.Value)
 		}
+		return fmt.Sprintf("%d%s", r.Value, suffix)
 	default:
-		if len(f.Sections) < math.MaxUint32 && 0 <= r.Value-1 && r.Value-1 < uint32(len(f.Sections)) {
-			sect := f.Sections[r.Value-1]
-			return fmt.Sprintf("%d (%s,%s)", r.Value, sect.Seg, sect.Name)
+		if s := sectNumString(f, r.Value); s != "" {
+			suffix = fmt.Sprintf(` (%s)`, s)
 		} else {
 			// TODO warning
-			return fmt.Sprintf("%d (?)", r.Value)
 		}
+		return fmt.Sprintf("%d%s", r.Value, suffix)
 	}
 }
 
@@ -182,6 +176,7 @@ func relocLenString(len uint8) string {
 func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64, data []byte, lookup symLookup) string {
 	var uval uint64
 	var ival int64
+
 	switch len(data) {
 	case 0:
 		val := data[0]
@@ -203,29 +198,177 @@ func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64,
 		panic("unreachable")
 	}
 
-	var suffix string
+	suffix := " (?)"
 
-	if uval != 0 {
-		switch {
-		case r.Scattered:
-			suffix = fmt.Sprintf(" (addend: %+x)", int64(r.Value)-ival)
-		case r.Extern:
-			if f.Cpu == macho.CpuAmd64 {
-				suffix = fmt.Sprintf(" (addend: %+x)", ival)
-			} else {
-				suffix = fmt.Sprintf(" (addend: %+x)", int64(s.Addr)-ival)
-			}
-		default:
-			addr := uval
-			if s, base := lookup(addr); s != "" {
-				if base == addr {
-					return fmt.Sprintf(" (addr: %#016x (%s))", addr, s)
+	var addr uint64
+
+	switch f.Cpu {
+	case macho.Cpu386:
+		switch macho.RelocTypeGeneric(r.Type) {
+		case macho.GENERIC_RELOC_VANILLA:
+			switch {
+			case r.Scattered:
+				rs := symAddrString(uint64(r.Value), lookup, true)
+				if r.Pcrel {
+					suffix = fmt.Sprintf(" ((%s+addend)(%%rip): %#016x)", rs, ival)
+					pc := s.Addr + uint64(r.Addr) + uint64(1<<r.Len)
+					if ival < 0 {
+						addr = uint64(r.Value) - uint64(-ival) + pc
+					} else {
+						addr = uint64(r.Value) + uint64(ival) + pc
+					}
+				} else {
+					suffix = fmt.Sprintf(" (%s+addend : %#016x)", rs, ival)
+					if ival < 0 {
+						addr = uint64(r.Value) - uint64(-ival)
+					} else {
+						addr = uint64(r.Value) + uint64(ival)
+					}
 				}
-				return fmt.Sprintf(" (addr: %#016x (%s%+x))", addr, s, addr-base)
+			case r.Extern:
+				rsym := symIndex(f, r.Value)
+				if r.Pcrel {
+					suffix = fmt.Sprintf(" ((addend)(%%rip): %d)", ival)
+					if rsym != nil {
+						pc := s.Addr + uint64(r.Addr) + uint64(1<<r.Len)
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival) + pc
+						} else {
+							addr = rsym.Value + uint64(ival) + pc
+						}
+					}
+				} else {
+					suffix = fmt.Sprintf(" (addend: %d)", ival)
+					if rsym != nil {
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival)
+						} else {
+							addr = rsym.Value + uint64(ival)
+						}
+					}
+				}
+			default:
+				suffix = fmt.Sprintf(" (addr: %s)", symAddrString(uval, lookup, true))
+				addr = uval
 			}
-			suffix = fmt.Sprintf(" (addr: %#016x)", addr)
+		case macho.GENERIC_RELOC_PAIR:
+		case macho.GENERIC_RELOC_SECTDIFF, macho.GENERIC_RELOC_LOCAL_SECTDIFF:
+			for i, r1 := range s.Relocs {
+				if r == r1 {
+					if i+1 < len(s.Relocs) {
+						n := s.Relocs[i+1]
+						if n.Scattered {
+							if macho.RelocTypeGeneric(n.Type) == macho.GENERIC_RELOC_PAIR {
+								rs2 := symAddrString(uint64(n.Value), lookup, true)
+								rs1 := symAddrString(uint64(r.Value), lookup, true)
+								suffix = fmt.Sprintf(" (addend+%s-%s: %d)", rs1, rs2, ival)
+								if ival < 0 {
+									addr = uint64(n.Value) - uint64(-ival)
+								} else {
+									addr = uint64(n.Value) + uint64(ival)
+								}
+							}
+						}
+					}
+					break
+				}
+			}
+		case macho.GENERIC_RELOC_PB_LA_PTR:
+		case macho.GENERIC_RELOC_TLV:
+			suffix = fmt.Sprintf(" (addr: %s)", symAddrString(uval, lookup, true))
+			addr = uval
 		}
+	case macho.CpuAmd64:
+		if macho.RelocTypeX86_64(r.Type) != macho.X86_64_RELOC_SUBTRACTOR {
+			if r.Extern {
+				rsym := symIndex(f, r.Value)
+				switch macho.RelocTypeX86_64(r.Type) {
+				case macho.X86_64_RELOC_SIGNED_1:
+					suffix = fmt.Sprintf(" (addend-1: %d)", ival)
+					if rsym != nil {
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival) + 1
+						} else {
+							addr = rsym.Value + uint64(ival) + 1
+						}
+					}
+				case macho.X86_64_RELOC_SIGNED_2:
+					suffix = fmt.Sprintf(" (addend-2: %d)", ival)
+					if rsym != nil {
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival) + 2
+						} else {
+							addr = rsym.Value + uint64(ival) + 2
+						}
+					}
+				case macho.X86_64_RELOC_SIGNED_4:
+					suffix = fmt.Sprintf(" (addend-4: %d)", ival)
+					if rsym != nil {
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival) + 4
+						} else {
+							addr = rsym.Value + uint64(ival) + 4
+						}
+					}
+				default:
+					suffix = fmt.Sprintf(" (addend: %d)", ival)
+					if rsym != nil {
+						if ival < 0 {
+							addr = rsym.Value - uint64(-ival)
+						} else {
+							addr = rsym.Value + uint64(ival)
+						}
+					}
+				}
+			} else {
+				suffix = fmt.Sprintf(" (addr: %s)", symAddrString(uval, lookup, true))
+				addr = uval
+			}
+		}
+	case macho.CpuArm:
+	case macho.CpuArm | 0x01000000:
 	}
 
+	_ = addr
+
 	return fmt.Sprintf(fmt.Sprintf("%% %dx%%s", (uint64(len(data))+off)*3-1), data, suffix)
+}
+
+func symAddrString(addr uint64, lookup symLookup, force bool) string {
+	if s, base := lookup(addr); s != "" {
+		if base == addr {
+			return s
+		}
+		return fmt.Sprintf("%s%+x", s, addr-base)
+	}
+	if force {
+		return fmt.Sprintf("%#x", addr)
+	}
+	return ""
+}
+
+func symIndexString(f *macho.File, i uint32) string {
+	if sym := symIndex(f, i); sym != nil {
+		return sym.Name
+	}
+	return ""
+}
+
+func symIndex(f *macho.File, i uint32) *macho.Symbol {
+	var syms []macho.Symbol
+	if f.Symtab != nil {
+		syms = f.Symtab.Syms
+	}
+	if len(syms) < math.MaxUint32 && 0 <= i && i < uint32(len(syms)) {
+		return &syms[i]
+	}
+	return nil
+}
+
+func sectNumString(f *macho.File, num uint32) string {
+	if len(f.Sections) < math.MaxUint32 && 0 <= num-1 && num-1 < uint32(len(f.Sections)) {
+		sect := f.Sections[num-1]
+		return fmt.Sprintf("%s,%s", sect.Seg, sect.Name)
+	}
+	return ""
 }
