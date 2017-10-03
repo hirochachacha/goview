@@ -3,7 +3,6 @@ package macho_widgets
 import (
 	"debug/macho"
 	"fmt"
-	"math"
 
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/gui"
@@ -332,43 +331,4 @@ func relocDataString(f *macho.File, s *macho.Section, r macho.Reloc, off uint64,
 	_ = addr
 
 	return fmt.Sprintf(fmt.Sprintf("%% %dx%%s", (uint64(len(data))+off)*3-1), data, suffix)
-}
-
-func symAddrString(addr uint64, lookup symLookup, force bool) string {
-	if s, base := lookup(addr); s != "" {
-		if base == addr {
-			return s
-		}
-		return fmt.Sprintf("%s%+x", s, addr-base)
-	}
-	if force {
-		return fmt.Sprintf("%#x", addr)
-	}
-	return ""
-}
-
-func symIndexString(f *macho.File, i uint32) string {
-	if sym := symIndex(f, i); sym != nil {
-		return sym.Name
-	}
-	return ""
-}
-
-func symIndex(f *macho.File, i uint32) *macho.Symbol {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-	if len(syms) < math.MaxUint32 && 0 <= i && i < uint32(len(syms)) {
-		return &syms[i]
-	}
-	return nil
-}
-
-func sectNumString(f *macho.File, num uint32) string {
-	if len(f.Sections) < math.MaxUint32 && 0 <= num-1 && num-1 < uint32(len(f.Sections)) {
-		sect := f.Sections[num-1]
-		return fmt.Sprintf("%s,%s", sect.Seg, sect.Name)
-	}
-	return ""
 }
