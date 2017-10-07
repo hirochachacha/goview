@@ -11,42 +11,45 @@ import (
 )
 
 type StructModel struct {
-	Tree     core.QAbstractItemModel_ITF
-	attrTabs []core.QAbstractItemModel_ITF
+	Tree         core.QAbstractItemModel_ITF
+	attrTabFuncs []func() core.QAbstractItemModel_ITF
+	attrTabCache []core.QAbstractItemModel_ITF
 }
 
 const StructItemRole = int(core.Qt__UserRole) + 1
 
-func NewStructModel(f *macho.File) *StructModel {
+func (f *File) NewStructModel() *StructModel {
 	m := new(StructModel)
 
-	setItemModel := func(data [][]string) *core.QVariant {
-		tab := gui.NewQStandardItemModel(nil)
-		tab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Description"))
-		tab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
-		for i, es := range data {
-			for j, e := range es {
-				tab.SetItem(i, j, gui.NewQStandardItem2(e))
+	setItemModel := func(data [][]string) (*core.QVariant, int) {
+		m.attrTabFuncs = append(m.attrTabFuncs, func() core.QAbstractItemModel_ITF {
+			tab := gui.NewQStandardItemModel(nil)
+			tab.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Field"))
+			tab.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Value"))
+			for i, es := range data {
+				for j, e := range es {
+					tab.SetItem(i, j, gui.NewQStandardItem2(e))
+				}
 			}
-		}
-		m.attrTabs = append(m.attrTabs, tab)
-		return core.NewQVariant7(len(m.attrTabs))
+			return tab
+		})
+		return core.NewQVariant7(len(m.attrTabFuncs)), StructItemRole
 	}
 
 	tree := gui.NewQStandardItemModel(nil)
 
 	root := tree.InvisibleRootItem()
 
-	file := gui.NewQStandardItem2(fileString(f))
+	file := gui.NewQStandardItem2(f.fileString())
 	file.SetData(setItemModel([][]string{
-		{"Magic Number", fmt.Sprintf("%#08x (%s)", f.Magic, Magic(f.Magic))},
-		{"CPU Type", fmt.Sprintf("%#08x (%s)", uint32(f.Cpu), CpuType(f.Cpu))},
-		{"CPU Subtype", cpusubString(f.Cpu, f.SubCpu)},
-		{"File Type", fmt.Sprintf("%#08x (%s)", uint32(f.Type), FileType(f.Type))},
-		{"Number of Load Commands", fmt.Sprint(f.Ncmd)},
-		{"Size of Load Commands", fmt.Sprint(f.Cmdsz)},
-		{"File Flags", flagsString(f.Flags, fileFlagStrings[:])},
-	}), StructItemRole)
+		{"magic", fmt.Sprintf("%#08x (%s)", f.Magic, Magic(f.Magic))},
+		{"cputype", fmt.Sprintf("%#08x (%s)", uint32(f.Cpu), CpuType(f.Cpu))},
+		{"cpusubtype", f.cpusubString(true)},
+		{"filetype", fmt.Sprintf("%#08x (%s)", uint32(f.Type), FileType(f.Type))},
+		{"ncmds", fmt.Sprint(f.Ncmd)},
+		{"sizeofcmds", fmt.Sprintf("%#08x", f.Cmdsz)},
+		{"flags", f.flagsString(f.Flags, fileFlagStrings[:], true)},
+	}))
 
 	sectDone := make(map[*macho.Section]bool)
 
@@ -60,57 +63,57 @@ func NewStructModel(f *macho.File) *StructModel {
 		case *macho.Rpath:
 			item := gui.NewQStandardItem2("LC_RPATH")
 			item.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-				{"RPath", lc.Path},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+				{"path", lc.Path},
+			}))
 			loads.AppendRow2(item)
 		case *macho.Dylib:
 			item := gui.NewQStandardItem2(fmt.Sprintf("LC_LOAD_DYLIB (%s)", lc.Name))
 			item.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-				{"Name", lc.Name},
-				{"Timestamp", time.Unix(int64(lc.Time), 0).String()},
-				{"Current Version", versionString(lc.CurrentVersion)},
-				{"Compatibility Version", versionString(lc.CompatVersion)},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+				{"name", lc.Name},
+				{"timestamp", time.Unix(int64(lc.Time), 0).String()},
+				{"current_version", f.versionString(lc.CurrentVersion)},
+				{"compatibility_version", f.versionString(lc.CompatVersion)},
+			}))
 			loads.AppendRow2(item)
 		case *macho.Symtab:
 			item := gui.NewQStandardItem2("LC_SYMTAB")
 			item.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-				{"Symbol Table Offset", fmt.Sprint(lc.SymtabCmd.Symoff)},
-				{"Number of Symbols", fmt.Sprint(lc.SymtabCmd.Nsyms)},
-				{"String Table Offset", fmt.Sprint(lc.SymtabCmd.Stroff)},
-				{"String Table Size", fmt.Sprint(lc.SymtabCmd.Strsize)},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+				{"symoff", fmt.Sprintf("%#08x", lc.SymtabCmd.Symoff)},
+				{"nsyms", fmt.Sprint(lc.SymtabCmd.Nsyms)},
+				{"stroff", fmt.Sprintf("%#08x", lc.SymtabCmd.Stroff)},
+				{"strsize", fmt.Sprintf("%#08x", lc.SymtabCmd.Strsize)},
+			}))
 			loads.AppendRow2(item)
 		case *macho.Dysymtab:
 			item := gui.NewQStandardItem2("LC_DYSYMTAB")
 			item.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-				{"Index of The First Local Symbol", fmt.Sprint(lc.DysymtabCmd.Ilocalsym)},
-				{"Number of Local Symbols", fmt.Sprint(lc.DysymtabCmd.Nlocalsym)},
-				{"Index of the first External Symbol", fmt.Sprint(lc.DysymtabCmd.Iextdefsym)},
-				{"Number of External Symbols", fmt.Sprint(lc.DysymtabCmd.Nextdefsym)},
-				{"Index of the first Undefined Symbol", fmt.Sprint(lc.DysymtabCmd.Iundefsym)},
-				{"Number of Undefined Symbols", fmt.Sprint(lc.DysymtabCmd.Nundefsym)},
-				{"Offset to the TOC", fmt.Sprintf("%d", lc.DysymtabCmd.Tocoffset)},
-				{"Number of TOC entries", fmt.Sprint(lc.DysymtabCmd.Ntoc)},
-				{"Offset to the Module Table", fmt.Sprintf("%d", lc.DysymtabCmd.Modtaboff)},
-				{"Number of the Module Table entries", fmt.Sprint(lc.DysymtabCmd.Modtaboff)},
-				{"Offset to the External Reference Table", fmt.Sprintf("%d", lc.DysymtabCmd.Extrefsymoff)},
-				{"Number of the External Reference Table entries", fmt.Sprint(lc.DysymtabCmd.Nextrefsyms)},
-				{"Offset to the Indirect Symbol Table", fmt.Sprintf("%d", lc.DysymtabCmd.Indirectsymoff)},
-				{"Number of the Indirect Symbol Table entries", fmt.Sprint(lc.DysymtabCmd.Nindirectsyms)},
-				{"Offset to the External Relocation Table", fmt.Sprintf("%d", lc.DysymtabCmd.Extreloff)},
-				{"Number of the External Relocation Table entries", fmt.Sprint(lc.DysymtabCmd.Nextrel)},
-				{"Offset to the Local Relocation Table", fmt.Sprint(lc.DysymtabCmd.Locreloff)},
-				{"Number of the Local Relocation Table entries", fmt.Sprintf("%d", lc.DysymtabCmd.Nlocrel)},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+				{"ilocalsym", fmt.Sprint(lc.DysymtabCmd.Ilocalsym)},
+				{"nlocalsym", fmt.Sprint(lc.DysymtabCmd.Nlocalsym)},
+				{"iextdefsym", fmt.Sprint(lc.DysymtabCmd.Iextdefsym)},
+				{"nextdefsym", fmt.Sprint(lc.DysymtabCmd.Nextdefsym)},
+				{"iundefsym", fmt.Sprint(lc.DysymtabCmd.Iundefsym)},
+				{"nundefsym", fmt.Sprint(lc.DysymtabCmd.Nundefsym)},
+				{"tocoff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Tocoffset)},
+				{"ntoc", fmt.Sprint(lc.DysymtabCmd.Ntoc)},
+				{"modtaboff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Modtaboff)},
+				{"nmodtab", fmt.Sprint(lc.DysymtabCmd.Modtaboff)},
+				{"extrefsymoff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Extrefsymoff)},
+				{"nextrefsyms", fmt.Sprint(lc.DysymtabCmd.Nextrefsyms)},
+				{"indirectsymoff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Indirectsymoff)},
+				{"nindirectsyms", fmt.Sprint(lc.DysymtabCmd.Nindirectsyms)},
+				{"extreloff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Extreloff)},
+				{"nextrel", fmt.Sprint(lc.DysymtabCmd.Nextrel)},
+				{"locreloff", fmt.Sprintf("%#08x", lc.DysymtabCmd.Locreloff)},
+				{"nlocrel", fmt.Sprintf("%d", lc.DysymtabCmd.Nlocrel)},
+			}))
 			loads.AppendRow2(item)
 		case *macho.Segment:
 			var segItem *gui.QStandardItem
@@ -124,22 +127,22 @@ func NewStructModel(f *macho.File) *StructModel {
 			}
 
 			segItem.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-				{"Name", lc.Name},
-				{"VM Address", fmt.Sprintf("%#016x", lc.Addr)},
-				{"VM Size", fmt.Sprintf("%d", lc.Memsz)},
-				{"File Offset", fmt.Sprintf("%d", lc.Offset)},
-				{"File Size", fmt.Sprintf("%d", lc.Filesz)},
-				{"Maximum VM Protections", fmt.Sprintf("%#o", lc.Maxprot)},
-				{"Initial VM Protections", fmt.Sprintf("%#o", lc.Prot)},
-				{"Number of Sections", fmt.Sprint(lc.Nsect)},
-				{"Segment Flags", flagsString(lc.Flag, segmentFlagStrings[:])},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+				{"segname", lc.Name},
+				{"vmaddr", fmt.Sprintf("%#016x", lc.Addr)},
+				{"vmsize", fmt.Sprintf("%#016x", lc.Memsz)},
+				{"fileoff", fmt.Sprintf("%#016x", lc.Offset)},
+				{"filesize", fmt.Sprintf("%#016x", lc.Filesz)},
+				{"maxprot", f.vmprotString(lc.Maxprot)},
+				{"initprot", f.vmprotString(lc.Prot)},
+				{"nsects", fmt.Sprint(lc.Nsect)},
+				{"flags", f.flagsString(lc.Flag, segmentFlagStrings[:], true)},
+			}))
 
 			nsect := lc.Nsect
 
-			for _, sect := range f.Sections {
+			for i, sect := range f.Sections {
 				if lc.Addr <= sect.Addr && sect.Addr+sect.Size <= lc.Addr+lc.Memsz {
 					if lc.Name == sect.Seg {
 						nsect--
@@ -152,19 +155,31 @@ func NewStructModel(f *macho.File) *StructModel {
 						sectDone[sect] = true
 					}
 
-					sectItem := gui.NewQStandardItem2(fmt.Sprintf("Section (%s,%s)", sect.Seg, sect.Name))
+					sectItem := gui.NewQStandardItem2(fmt.Sprintf("Section %d (%s,%s)", i+1, sect.Seg, sect.Name))
 					sectItem.SetData(setItemModel([][]string{
-						{"Name", sect.Name},
-						{"Segment Name", sect.Seg},
-						{"Address", fmt.Sprintf("%#016x", sect.Addr)},
-						{"Size", fmt.Sprint(sect.Size)},
-						{"Offset", fmt.Sprint(sect.Offset)},
-						{"Alignment", fmt.Sprintf("%d (%d)", sect.Align, 1<<sect.Align)},
-						{"Offset to the first Relocation", fmt.Sprint(sect.Reloff)},
-						{"Number of Relocation entries", fmt.Sprint(sect.Nreloc)},
-						{"Section Flags", sectionFlagsString(sect.Flags)},
-					}), StructItemRole)
+						{"sectname", sect.Name},
+						{"segname", sect.Seg},
+						{"addr", fmt.Sprintf("%#016x", sect.Addr)},
+						{"size", fmt.Sprintf("%#016x", sect.Size)},
+						{"offset", fmt.Sprintf("%#016x", sect.Offset)},
+						{"align", fmt.Sprintf("%d (%d)", sect.Align, 1<<sect.Align)},
+						{"reloff", fmt.Sprintf("%#016x", sect.Reloff)},
+						{"nreloc", fmt.Sprint(sect.Nreloc)},
+						{"flags", f.sectionFlagsString(sect.Flags, true)},
+					}))
 
+					// TODO use tree instead of table, so relocation will be visible
+
+					s := sect
+
+					m.attrTabFuncs = append(m.attrTabFuncs, func() core.QAbstractItemModel_ITF {
+						return f.NewSectionModel(f.guessSectType(s), s, 0, 0)
+					})
+
+					sectDataItem := gui.NewQStandardItem2("Data")
+					sectDataItem.SetData(core.NewQVariant7(len(m.attrTabFuncs)), StructItemRole)
+
+					sectItem.AppendRow2(sectDataItem)
 					segItem.AppendRow2(sectItem)
 				}
 			}
@@ -177,12 +192,14 @@ func NewStructModel(f *macho.File) *StructModel {
 		default:
 			item := gui.NewQStandardItem2(fmt.Sprintf("%s (?)", LoadCommand(cmd)))
 			item.SetData(setItemModel([][]string{
-				{"Command", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
-				{"Command Size", fmt.Sprint(cmdsize)},
-			}), StructItemRole)
+				{"cmd", fmt.Sprintf("%#08x (%s)", cmd, LoadCommand(cmd))},
+				{"cmdsize", fmt.Sprintf("%#08x", cmdsize)},
+			}))
 			loads.AppendRow2(item)
 		}
 	}
+
+	m.attrTabCache = make([]core.QAbstractItemModel_ITF, len(m.attrTabFuncs))
 
 	for _, sect := range f.Sections {
 		if !sectDone[sect] {
@@ -201,14 +218,19 @@ func NewStructModel(f *macho.File) *StructModel {
 
 func (m *StructModel) AttrTab(index *core.QModelIndex) core.QAbstractItemModel_ITF {
 	if val := index.Data(StructItemRole); val.IsValid() {
-		if i := val.ToInt(false); 0 < i && i <= len(m.attrTabs) {
-			return m.attrTabs[i-1]
+		if i := val.ToInt(false); 0 < i && i <= len(m.attrTabFuncs) {
+			if cache := m.attrTabCache[i-1]; cache != nil {
+				return cache
+			}
+			tab := m.attrTabFuncs[i-1]()
+			m.attrTabCache[i-1] = tab
+			return tab
 		}
 	}
 	return nil
 }
 
-func fileString(f *macho.File) string {
+func (f *File) fileString() string {
 	typeString := func(typ macho.Type) string {
 		switch typ {
 		case macho.TypeObj:
@@ -244,46 +266,50 @@ func fileString(f *macho.File) string {
 	return fmt.Sprintf("%s (%s)", typeString(f.Type), cpuString(f.Cpu))
 }
 
-func cpusubString(cpu macho.Cpu, cpusub uint32) string {
-	switch cpu {
+func (f *File) cpusubString(html bool) string {
+	var s string
+
+	cpusub := f.SubCpu
+
+	switch f.Cpu {
 	case macho.Cpu386:
-		return fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeX86(cpusub))
+		s = fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeX86(cpusub))
 	case macho.CpuAmd64:
-		var s string
 		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
 			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
 			cpusub ^= CPU_SUBTYPE_LIB64
 		}
-		return s + fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeX86_64(cpusub))
+		s += fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeX86_64(cpusub))
 	case macho.CpuArm:
-		return fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeARM(cpusub))
+		s = fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeARM(cpusub))
 	case macho.CpuArm | 0x01000000:
-		var s string
 		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
 			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
 			cpusub ^= CPU_SUBTYPE_LIB64
 		}
-		return s + fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeARM64(cpusub))
+		s += fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypeARM64(cpusub))
 	case macho.CpuPpc:
-		return fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypePPC(cpusub))
+		s = fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypePPC(cpusub))
 	case macho.CpuPpc64:
-		var s string
 		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
 			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
 			cpusub ^= CPU_SUBTYPE_LIB64
 		}
-		return s + fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypePPC(cpusub))
+		s += fmt.Sprintf("%#08x (%s)", cpusub, CpuSubtypePPC(cpusub))
 	default:
-		var s string
 		if cpusub&CPU_SUBTYPE_LIB64 != 0 {
 			s = "0x80000000 (CPU_SUBTYPE_LIB64)\n"
 			cpusub ^= CPU_SUBTYPE_LIB64
 		}
-		return s + fmt.Sprintf("%#08x (?)", cpusub)
+		s += fmt.Sprintf("%#08x (?)", cpusub)
 	}
+	if html {
+		s = "<body>" + s + "</body>"
+	}
+	return s
 }
 
-func flagsString(f uint32, strtab []string) string {
+func (_ *File) flagsString(f uint32, strtab []string, html bool) string {
 	var flags []string
 	for i := 0; f != 0; i++ {
 		if f&1 != 0 {
@@ -294,18 +320,42 @@ func flagsString(f uint32, strtab []string) string {
 	if len(flags) == 0 {
 		return "0x00000000"
 	}
-	return strings.Join(flags, "\n")
+	s := strings.Join(flags, "\n")
+	if html {
+		s = "<body>" + s + "</body>"
+	}
+	return s
 }
 
-func versionString(v uint32) string {
+func (f *File) versionString(v uint32) string {
 	return fmt.Sprintf("%#08x (%d.%d.%d)", v, v>>16, (v>>8)&0xff, v&0xff)
 }
 
-func sectionFlagsString(f uint32) string {
-	var flags []string
-	if f&SECTION_TYPE != 0 {
-		flags = append(flags, fmt.Sprintf("%#08x (%s)", f&SECTION_TYPE, SectionType(f&SECTION_TYPE)))
+func (f *File) vmprotString(prot uint32) string {
+	s := ""
+	if prot&4 != 0 {
+		s += "r"
+	} else {
+		s += "-"
 	}
+	if prot&2 != 0 {
+		s += "w"
+	} else {
+		s += "-"
+	}
+	if prot&1 != 0 {
+		s += "x"
+	} else {
+		s += "-"
+	}
+	return fmt.Sprintf("%#o (%s)", prot, s)
+}
+
+func (_ *File) sectionFlagsString(f uint32, html bool) string {
+	var flags []string
+
+	flags = append(flags, fmt.Sprintf("%#08x (%s)", f&SECTION_TYPE, SectionType(f&SECTION_TYPE)))
+
 	if f&SECTION_ATTRIBUTES_SYS != 0 {
 		if f&S_ATTR_LOC_RELOC != 0 {
 			flags = append(flags, "0x00000100 (S_ATTR_LOC_RELOC)")
@@ -317,6 +367,7 @@ func sectionFlagsString(f uint32) string {
 			flags = append(flags, "0x00000400 (S_ATTR_SOME_INSTRUCTIONS)")
 		}
 	}
+
 	if f&SECTION_ATTRIBUTES_USR != 0 {
 		if f&S_ATTR_DEBUG != 0 {
 			flags = append(flags, "0x02000000 (S_ATTR_DEBUG)")
@@ -340,8 +391,10 @@ func sectionFlagsString(f uint32) string {
 			flags = append(flags, "0x80000000 (S_ATTR_PURE_INSTRUCTIONS)")
 		}
 	}
-	if len(flags) == 0 {
-		return "0x00000000"
+
+	s := strings.Join(flags, "\n")
+	if html {
+		s = "<body>" + s + "</body>"
 	}
-	return strings.Join(flags, "\n")
+	return s
 }

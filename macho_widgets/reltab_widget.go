@@ -1,14 +1,12 @@
 package macho_widgets
 
 import (
-	"debug/macho"
-
 	"github.com/therecipe/qt/core"
 	"github.com/therecipe/qt/widgets"
 )
 
-func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
-	reltabModel := NewReltabModel(f, lookup)
+func (f *File) NewReltabWidget(parent widgets.QWidget_ITF) widgets.QWidget_ITF {
+	reltabModel := f.NewReltabModel()
 
 	seclist := widgets.NewQListView(nil)
 	seclist.SetModel(reltabModel.Sections)
@@ -63,7 +61,7 @@ func NewReltabWidget(f *macho.File, lookup symLookup) widgets.QWidget_ITF {
 	sp.AddWidget(reltabGroup)
 	sp.SetStretchFactor(1, 2)
 
-	w := widgets.NewQWidget(nil, 0)
+	w := widgets.NewQWidget(parent, 0)
 	layout := widgets.NewQVBoxLayout()
 	layout.AddWidget(sp, 0, 0)
 	w.SetLayout(layout)

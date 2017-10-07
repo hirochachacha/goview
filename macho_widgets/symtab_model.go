@@ -2,30 +2,22 @@ package macho_widgets
 
 import (
 	"debug/macho"
-	"encoding/binary"
 	"fmt"
 	"strings"
 	"unicode"
 
-	"golang.org/x/arch/arm/armasm"
-	"golang.org/x/arch/arm64/arm64asm"
-	"golang.org/x/arch/ppc64/ppc64asm"
-	"golang.org/x/arch/x86/x86asm"
-
 	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/gui"
 )
 
 const SymbolItemRole = core.Qt__UserRole + 1
 
 type SymtabModel struct {
 	Symtab       core.QAbstractItemModel_ITF
-	asmtree      func(index *core.QModelIndex) core.QAbstractItemModel_ITF
 	filterType   byte
 	filterExtern bool
 }
 
-func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) *SymtabModel {
+func (f *File) NewSymtabModel() *SymtabModel {
 	m := new(SymtabModel)
 
 	symtab := core.NewQSortFilterProxyModel(nil)
@@ -51,7 +43,7 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 			}
 			sect := uint8(sm.Index(sourceRow, 2, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
 			val := sm.Index(sourceRow, 4, sourceParent).Data(int(SymbolItemRole)).ToULongLong(true)
-			c := symChar(f, typ, sect, val)
+			c := f.toSymChar(typ, sect, val)
 			if fc != c {
 				fc = byte(unicode.ToLower(rune(fc)))
 				if fc != c {
@@ -65,10 +57,7 @@ func NewSymtabModel(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64
 		return symtab.FilterRegExp().IndexIn(name, 0, core.QRegExp__CaretAtZero) != -1
 	})
 
-	asmtree := m.newAsmtree(f, ssyms, symAddrInfo, lookup)
-
 	m.Symtab = symtab
-	m.asmtree = asmtree
 
 	return m
 }
@@ -95,21 +84,12 @@ func (m *SymtabModel) FilterExternOnly() bool {
 	return m.filterExtern
 }
 
-func (m *SymtabModel) Asmtree(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-	return m.asmtree(m.Symtab.(*core.QSortFilterProxyModel).MapToSource(index))
-}
-
-func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-
-	header := []string{"Name", "Type", "Section", "Description", "Value"}
+func (m *SymtabModel) newSymtabModel(f *File) core.QAbstractItemModel_ITF {
+	header := []string{"Name", "Type", "Sect", "Desc", "value"}
 
 	symtab := core.NewQAbstractTableModel(nil)
 	symtab.ConnectRowCount(func(parent *core.QModelIndex) int {
-		return len(syms)
+		return len(f.Syms)
 	})
 	symtab.ConnectColumnCount(func(parent *core.QModelIndex) int {
 		return len(header)
@@ -128,7 +108,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 		return core.NewQVariant()
 	})
 	symtab.ConnectData(func(index *core.QModelIndex, role int) *core.QVariant {
-		sym := &syms[index.Row()]
+		sym := &f.Syms[index.Row()]
 
 		switch core.Qt__ItemDataRole(role) {
 		case SymbolItemRole:
@@ -153,36 +133,13 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 			case 0:
 				val = sym.Name
 			case 1:
-				val = symTypeString(sym.Type)
+				val = f.symTypeString(sym.Type)
 			case 2:
-				switch {
-				case sym.Sect == 0:
-					val = "0 (NO_SECT)"
-				case int(sym.Sect) <= len(f.Sections):
-					sect := f.Sections[sym.Sect-1]
-					val = fmt.Sprintf("%d (%s,%s)", sym.Sect, sect.Seg, sect.Name)
-				default:
-					val = fmt.Sprintf("%d (?)", sym.Sect)
-				}
+				val = f.symSectionString(sym.Sect)
 			case 3:
-				val = symDescString(f, sym)
+				val = f.symDescString(sym)
 			case 4:
-				switch {
-				case sym.Type&N_STAB != 0:
-					// TODO handle stab
-					val = fmt.Sprintf("%#016x", sym.Value)
-				case sym.Type&N_TYPE == N_UNDF:
-					if sym.Value != 0 { // common symbol
-						val = fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
-					}
-				case sym.Type&N_TYPE == N_PBUD:
-					if sym.Value != 0 { // ?
-						// TODO warning
-						val = fmt.Sprintf("%d (?)", sym.Value)
-					}
-				default:
-					val = fmt.Sprintf("%#016x", sym.Value)
-				}
+				val = f.symValueString(sym)
 			}
 
 			return core.NewQVariant14(val)
@@ -194,143 +151,7 @@ func (m *SymtabModel) newSymtabModel(f *macho.File) core.QAbstractItemModel_ITF 
 	return symtab
 }
 
-func (m *SymtabModel) newAsmtree(f *macho.File, ssyms []*macho.Symbol, symAddrInfo map[uint64]*symInfo, lookup symLookup) func(*core.QModelIndex) core.QAbstractItemModel_ITF {
-	var syms []macho.Symbol
-	if f.Symtab != nil {
-		syms = f.Symtab.Syms
-	}
-
-	return func(index *core.QModelIndex) core.QAbstractItemModel_ITF {
-		if !index.IsValid() {
-			return nil
-		}
-		row := index.Row()
-		if 0 <= row && row < len(syms) {
-			sym := &syms[row]
-			if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
-				if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
-					sect := f.Sections[sym.Sect-1]
-
-					asmtree := gui.NewQStandardItemModel(nil)
-					asmtree.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
-					asmtree.SetHorizontalHeaderItem(1, gui.NewQStandardItem2("Data"))
-					asmtree.SetHorizontalHeaderItem(2, gui.NewQStandardItem2("Value"))
-					if f.Type == macho.TypeObj {
-						asmtree.SetHorizontalHeaderItem(3, gui.NewQStandardItem2("Type"))
-						asmtree.SetHorizontalHeaderItem(4, gui.NewQStandardItem2("PC Relative"))
-						asmtree.SetHorizontalHeaderItem(5, gui.NewQStandardItem2("Extern"))
-						asmtree.SetHorizontalHeaderItem(6, gui.NewQStandardItem2("Scattered"))
-					}
-
-					addr := sym.Value
-					info := symAddrInfo[addr]
-
-					if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
-						code := make([]byte, info.Size)
-						n, err := sect.ReadAt(code, int64(sym.Value-sect.Addr))
-						if n != len(code) || err != nil {
-							// TODO warning
-							return nil
-						}
-
-						disasm := disasmFunc(f.Cpu, f.ByteOrder, lookup)
-						if disasm == nil {
-							// TODO warning
-							return nil
-						}
-
-						for len(code) != 0 {
-							syntax, instLen := disasm(code, addr)
-
-							addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
-
-							asmtree.AppendRow([]*gui.QStandardItem{
-								addrItem,
-								gui.NewQStandardItem2(fmt.Sprintf("% x", code[:instLen])),
-								gui.NewQStandardItem2(syntax),
-							})
-
-							if f.Type == macho.TypeObj {
-								for i := range info.Relocs {
-									r := info.Relocs[i]
-									s := info.RelocSections[i]
-									raddr := s.Addr + uint64(r.Addr)
-									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(instLen) {
-										rdata := code[raddr-addr : raddr-addr+uint64(1<<r.Len)]
-										addrItem.AppendRow([]*gui.QStandardItem{
-											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rdata, lookup)),
-											gui.NewQStandardItem2(relocValueString(f, r, lookup)),
-											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
-										})
-									}
-								}
-							}
-
-							code = code[instLen:]
-
-							addr += uint64(instLen)
-						}
-					} else {
-						data := make([]byte, info.Size)
-						n, err := sect.ReadAt(data, int64(sym.Value-sect.Addr))
-						if n != len(data) || err != nil {
-							// TODO warning
-							return nil
-						}
-
-						for len(data) != 0 {
-							size := 8
-							if len(data) < 8 {
-								size = len(data)
-							}
-
-							addrItem := gui.NewQStandardItem2(fmt.Sprintf("%#016x", addr))
-
-							asmtree.AppendRow([]*gui.QStandardItem{
-								addrItem,
-								gui.NewQStandardItem2(fmt.Sprintf("% x", data[:size])),
-								gui.NewQStandardItem2(ascii(data[:size])),
-							})
-
-							if f.Type == macho.TypeObj {
-								for i := range info.Relocs {
-									r := info.Relocs[i]
-									s := info.RelocSections[i]
-									raddr := s.Addr + uint64(r.Addr)
-									if addr <= raddr && raddr+uint64(1<<r.Len) <= addr+uint64(size) {
-										rdata := data[raddr-addr : raddr-addr+uint64(1<<r.Len)]
-										addrItem.AppendRow([]*gui.QStandardItem{
-											gui.NewQStandardItem2(fmt.Sprintf("%#016x", raddr)),
-											gui.NewQStandardItem2(relocDataString(f, s, r, raddr-addr, rdata, lookup)),
-											gui.NewQStandardItem2(relocValueString(f, r, lookup)),
-											gui.NewQStandardItem2(relocTypeString(r.Type, f.Cpu)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Pcrel)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Extern)),
-											gui.NewQStandardItem2(fmt.Sprintf("%t", r.Scattered)),
-										})
-									}
-								}
-							}
-
-							data = data[size:]
-
-							addr += uint64(size)
-						}
-					}
-
-					return asmtree
-				}
-			}
-		}
-		return nil
-	}
-}
-
-func symTypeString(typ uint8) string {
+func (f *File) symTypeString(typ uint8) string {
 	var values []string
 	switch {
 	case typ&N_STAB != 0:
@@ -360,7 +181,19 @@ func symTypeString(typ uint8) string {
 	return strings.Join(values, "\n")
 }
 
-func symDescString(f *macho.File, sym *macho.Symbol) string {
+func (f *File) symSectionString(sect uint8) string {
+	switch {
+	case sect == 0:
+		return "0 (NO_SECT)"
+	case int(sect) <= len(f.Sections):
+		s := f.Sections[sect-1]
+		return fmt.Sprintf("%d (%s,%s)", sect, s.Seg, s.Name)
+	default:
+		return fmt.Sprintf("%d (?)", sect)
+	}
+}
+
+func (f *File) symDescString(sym *macho.Symbol) string {
 	if sym.Type&N_STAB != 0 {
 		// TODO handle stab
 		return fmt.Sprintf("%#04x", sym.Desc)
@@ -460,142 +293,22 @@ func symDescString(f *macho.File, sym *macho.Symbol) string {
 	return strings.Join(vals, "\n")
 }
 
-type byAddr []*macho.Symbol
-
-func (v byAddr) Len() int {
-	return len(v)
-}
-
-func (v byAddr) Less(i, j int) bool {
-	return v[i].Value < v[j].Value
-}
-
-func (v byAddr) Swap(i, j int) {
-	v[i], v[j] = v[j], v[i]
-}
-
-func disasmFunc(cpu macho.Cpu, bo binary.ByteOrder, lookup symLookup) func(code []byte, pc uint64) (string, int) {
-	switch cpu {
-	case macho.Cpu386:
-		return func(code []byte, pc uint64) (string, int) {
-			inst, err := x86asm.Decode(code, 32)
-			if err != nil {
-				return "?", 1
-			}
-			syntax := x86asm.GNUSyntax(inst, pc, x86asm.SymLookup(lookup))
-			return syntax, inst.Len
+func (f *File) symValueString(sym *macho.Symbol) string {
+	switch {
+	case sym.Type&N_STAB != 0:
+		// TODO handle stab
+		return fmt.Sprintf("%#016x", sym.Value)
+	case sym.Type&N_TYPE == N_UNDF:
+		if sym.Value != 0 { // common symbol
+			return fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
 		}
-	case macho.CpuAmd64:
-		return func(code []byte, pc uint64) (string, int) {
-			inst, err := x86asm.Decode(code, 64)
-			if err != nil {
-				return "?", 1
-			}
-			syntax := x86asm.GNUSyntax(inst, pc, x86asm.SymLookup(lookup))
-			return syntax, inst.Len
+	case sym.Type&N_TYPE == N_PBUD:
+		if sym.Value != 0 { // ?
+			// TODO warning
+			return fmt.Sprintf("%d (?)", sym.Value)
 		}
-	case macho.CpuArm:
-		return func(code []byte, pc uint64) (string, int) {
-			inst, err := armasm.Decode(code, armasm.ModeARM)
-			if err != nil {
-				return "?", 1
-			}
-			syntax := armasm.GNUSyntax(inst)
-			return syntax, inst.Len
-		}
-	case macho.CpuArm | 0x01000000:
-		return func(code []byte, pc uint64) (string, int) {
-			inst, err := arm64asm.Decode(code)
-			if err != nil {
-				return "?", 4
-			}
-			syntax := arm64asm.GNUSyntax(inst)
-			return syntax, 4
-		}
-	case macho.CpuPpc64:
-		return func(code []byte, pc uint64) (string, int) {
-			inst, err := ppc64asm.Decode(code, bo)
-			if err != nil {
-				return "?", 1
-			}
-			syntax := ppc64asm.GNUSyntax(inst)
-			return syntax, inst.Len
-		}
-	}
-
-	return nil
-}
-
-func ascii(data []byte) string {
-	ret := make([]byte, len(data))
-	for i, c := range data {
-		if 32 <= c && c < 127 {
-			ret[i] = c
-		} else {
-			ret[i] = '.'
-		}
-	}
-	return string(ret)
-}
-
-func symChar(f *macho.File, typ uint8, sect uint8, val uint64) byte {
-	if typ&N_STAB != 0 {
-		return '-'
-	}
-	switch typ & N_TYPE {
-	case N_UNDF:
-		if val == 0 {
-			if typ&N_EXT != 0 {
-				return 'U'
-			}
-			return 'u'
-		}
-		if typ&N_EXT != 0 {
-			return 'C'
-		}
-		return 'c'
-	case N_ABS:
-		if typ&N_EXT != 0 {
-			return 'A'
-		}
-		return 'a'
-	case N_SECT:
-		if sect == 0 {
-			if typ&N_EXT != 0 {
-				return 'B'
-			}
-			return 'b'
-		}
-		if 0 <= int(sect-1) && int(sect-1) < len(f.Sections) {
-			s := f.Sections[sect-1]
-			switch {
-			case s.Seg == "__TEXT" && s.Name == "__text":
-				if typ&N_EXT != 0 {
-					return 'T'
-				}
-				return 't'
-			case s.Seg == "__DATA" && s.Name == "__data":
-				if typ&N_EXT != 0 {
-					return 'D'
-				}
-				return 'd'
-			}
-		}
-		if typ&N_EXT != 0 {
-			return 'S'
-		}
-		return 's'
-	case N_PBUD:
-		if typ&N_EXT != 0 {
-			return 'U'
-		}
-		return 'u'
-	case N_INDR:
-		if typ&N_EXT != 0 {
-			return 'I'
-		}
-		return 'i'
 	default:
-		return '?'
+		return fmt.Sprintf("%#016x", sym.Value)
 	}
+	return ""
 }

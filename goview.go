@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/hirochachacha/goview/macho_widgets"
@@ -71,10 +70,10 @@ func NewMainWindow(args []string) (*MainWindow, error) {
 	if err != nil {
 		return nil, err
 	}
-	cw := macho_widgets.NewCentralWidget(f)
+	cw := macho_widgets.NewCentralWidget(nil, f)
 
 	mw.addMenu()
-	mw.SetWindowTitle(filepath.Base(path))
+	mw.SetWindowTitle(path)
 	mw.SetCentralWidget(cw)
 	mw.Resize2(defaultWidth, defaultHeight)
 
@@ -99,10 +98,10 @@ func (mw *MainWindow) addMenu() {
 			msg.ShowMessage(err.Error())
 			return
 		}
-		cw := macho_widgets.NewCentralWidget(f)
+		cw := macho_widgets.NewCentralWidget(nil, f)
 		mw := &MainWindow{widgets.NewQMainWindow(nil, 0)}
 		mw.addMenu()
-		mw.SetWindowTitle(filepath.Base(path))
+		mw.SetWindowTitle(path)
 		mw.SetCentralWidget(cw)
 		mw.Resize2(defaultWidth, defaultHeight)
 		mw.Show()
