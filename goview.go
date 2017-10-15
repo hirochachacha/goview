@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 
 	"github.com/hirochachacha/goview/macho_widgets"
 	"github.com/therecipe/qt/gui"
@@ -16,16 +15,6 @@ const (
 	defaultWidth  = 900
 	defaultHeight = 450
 )
-
-var rsrcPath string
-
-func init() {
-	if runtime.GOOS == "darwin" {
-		rsrcPath = ":/qml/images/mac"
-	} else {
-		rsrcPath = ":/qml/images/win"
-	}
-}
 
 func main() {
 	app := widgets.NewQApplication(len(os.Args), os.Args)
@@ -82,8 +71,7 @@ func NewMainWindow(args []string) (*MainWindow, error) {
 
 func (mw *MainWindow) addMenu() {
 	menu := mw.MenuBar().AddMenu2("&File")
-	icon := gui.QIcon_FromTheme2("document-open", gui.NewQIcon5(rsrcPath+"/fileopen.png"))
-	a := menu.AddAction2(icon, "&Open...")
+	a := menu.AddAction2(gui.QIcon_FromTheme("document-open"), "&Open...")
 	a.ConnectTriggered(func(checked bool) {
 		path, err := mw.openFile()
 		if err != nil {
