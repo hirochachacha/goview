@@ -13,7 +13,13 @@ const (
 	defaultHeight = 450
 )
 
-func (f *File) NewDataView(parent widgets.QWidget_ITF) *widgets.QTreeView {
+type DataView struct {
+	*widgets.QWidget
+
+	tree *widgets.QTreeView
+}
+
+func (f *File) NewDataView(parent widgets.QWidget_ITF) *DataView {
 	v := widgets.NewQTreeView(nil)
 	v.SetSelectionBehavior(widgets.QAbstractItemView__SelectRows)
 	v.SetEditTriggers(widgets.QAbstractItemView__NoEditTriggers)
@@ -49,7 +55,28 @@ func (f *File) NewDataView(parent widgets.QWidget_ITF) *widgets.QTreeView {
 		}
 	})
 
-	return v
+	layout := widgets.NewQVBoxLayout()
+	layout.AddWidget(v, 0, 0)
+
+	w := widgets.NewQWidget(parent, 0)
+	w.SetLayout(layout)
+
+	return &DataView{
+		QWidget: w,
+		tree:    v,
+	}
+}
+
+func (d *DataView) Header() *widgets.QHeaderView {
+	return d.tree.Header()
+}
+
+func (d *DataView) SetAlternatingRowColors(b bool) {
+	d.tree.SetAlternatingRowColors(b)
+}
+
+func (d *DataView) SetModel(m core.QAbstractItemModel_ITF) {
+	d.tree.SetModel(m)
 }
 
 func NewHtmlItemDelegate(parent core.QObject_ITF) widgets.QAbstractItemDelegate_ITF {

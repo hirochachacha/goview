@@ -10,7 +10,7 @@ type SymdataWidget struct {
 	*widgets.QWidget
 
 	bb      *ButtonBarWidget
-	tree    *widgets.QTreeView
+	tree    *DataView
 	f       *File
 	sym     *macho.Symbol
 	taddend int64

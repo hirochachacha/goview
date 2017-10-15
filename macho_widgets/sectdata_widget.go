@@ -10,7 +10,7 @@ type SectdataWidget struct {
 	*widgets.QWidget
 
 	bb    *ButtonBarWidget
-	tree  *widgets.QTreeView
+	tree  *DataView
 	f     *File
 	sect  *macho.Section
 	taddr uint64
