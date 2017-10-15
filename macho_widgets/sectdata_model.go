@@ -64,13 +64,34 @@ func (f *File) guessSectType(sect *macho.Section) string {
 		return ""
 	case S_16BYTE_LITERALS:
 		return "Float128"
-	default:
-		if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
+	}
+
+	if sect.Flags&S_ATTR_SOME_INSTRUCTIONS != 0 || sect.Flags&S_ATTR_PURE_INSTRUCTIONS != 0 {
+		return "Code"
+	}
+
+	switch sect.Seg {
+	case "__TEXT":
+		switch sect.Name {
+		case "__text":
 			return "Code"
-		} else {
-			return "Data"
+		case "__cstring":
+			return "CString"
+		case "__literal4":
+			return "Float32"
+		case "__literal8":
+			return "Float64"
+		case "__literal16":
+			return "Float128"
+		}
+	case "__DWARF":
+		switch sect.Name {
+		case "__debug_str":
+			return "CString"
 		}
 	}
+
+	return "Data"
 }
 
 func (f *File) newCodeSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
