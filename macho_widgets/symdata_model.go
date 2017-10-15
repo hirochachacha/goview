@@ -15,19 +15,19 @@ func (f *File) NewSymbolModel(typ string, sym *macho.Symbol, taddend int64, tsiz
 	case "":
 		return nil
 	case "Code":
-		return f.NewCodeSymbolModel(sym, taddend, tsize)
+		return f.newCodeSymbolModel(sym, taddend, tsize)
 	case "CString":
-		return f.NewCStringSymbolModel(sym, taddend, tsize)
+		return f.newCStringSymbolModel(sym, taddend, tsize)
 	case "Float32":
-		return f.NewFloat32SymbolModel(sym, taddend, tsize)
+		return f.newFloat32SymbolModel(sym, taddend, tsize)
 	case "Float64":
-		return f.NewFloat64SymbolModel(sym, taddend, tsize)
+		return f.newFloat64SymbolModel(sym, taddend, tsize)
 	case "Float128":
-		return f.NewFloat128SymbolModel(sym, taddend, tsize)
+		return f.newFloat128SymbolModel(sym, taddend, tsize)
 	case "Pointer32":
-		return f.NewPointer32SymbolModel(sym, taddend, tsize)
+		return f.newPointer32SymbolModel(sym, taddend, tsize)
 	case "Data":
-		return f.NewDataSymbolModel(sym, taddend, tsize)
+		return f.newDataSymbolModel(sym, taddend, tsize)
 	default:
 		panic("unreachable")
 	}
@@ -49,7 +49,7 @@ func (f *File) guessSymType(sym *macho.Symbol) string {
 	return ""
 }
 
-func (f *File) NewCodeSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newCodeSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	disasm := f.disasmFunc()
 	if disasm == nil {
 		// TODO warning
@@ -59,7 +59,7 @@ func (f *File) NewCodeSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.
 	return f.newSymbolModel(sym, taddend, tsize, disasm, true)
 }
 
-func (f *File) NewDataSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newDataSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 8
 		if len(data) < 8 {
@@ -69,7 +69,7 @@ func (f *File) NewDataSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.
 	}, true)
 }
 
-func (f *File) NewCStringSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newCStringSymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		var size int
 		if c := bytes.IndexByte(data, 0); c != -1 {
@@ -84,7 +84,7 @@ func (f *File) NewCStringSymbolModel(sym *macho.Symbol, taddend, tsize int64) co
 	}, false)
 }
 
-func (f *File) NewFloat32SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat32SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 4
 		if len(data) < 4 {
@@ -94,7 +94,7 @@ func (f *File) NewFloat32SymbolModel(sym *macho.Symbol, taddend, tsize int64) co
 	}, false)
 }
 
-func (f *File) NewFloat64SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat64SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 8
 		if len(data) < 8 {
@@ -104,7 +104,7 @@ func (f *File) NewFloat64SymbolModel(sym *macho.Symbol, taddend, tsize int64) co
 	}, false)
 }
 
-func (f *File) NewFloat128SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat128SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 16
 		if len(data) < 16 {
@@ -114,7 +114,7 @@ func (f *File) NewFloat128SymbolModel(sym *macho.Symbol, taddend, tsize int64) c
 	}, false)
 }
 
-func (f *File) NewPointer32SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newPointer32SymbolModel(sym *macho.Symbol, taddend, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSymbolModel(sym, taddend, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 4
 		if len(data) < 4 {

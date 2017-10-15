@@ -15,19 +15,19 @@ func (f *File) NewSectionModel(typ string, sect *macho.Section, taddr uint64, ts
 	case "":
 		return nil
 	case "Code":
-		return f.NewCodeSectionModel(sect, taddr, tsize)
+		return f.newCodeSectionModel(sect, taddr, tsize)
 	case "CString":
-		return f.NewCStringSectionModel(sect, taddr, tsize)
+		return f.newCStringSectionModel(sect, taddr, tsize)
 	case "Float32":
-		return f.NewFloat32SectionModel(sect, taddr, tsize)
+		return f.newFloat32SectionModel(sect, taddr, tsize)
 	case "Float64":
-		return f.NewFloat64SectionModel(sect, taddr, tsize)
+		return f.newFloat64SectionModel(sect, taddr, tsize)
 	case "Float128":
-		return f.NewFloat128SectionModel(sect, taddr, tsize)
+		return f.newFloat128SectionModel(sect, taddr, tsize)
 	case "Pointer32":
-		return f.NewPointer32SectionModel(sect, taddr, tsize)
+		return f.newPointer32SectionModel(sect, taddr, tsize)
 	case "Data":
-		return f.NewDataSectionModel(sect, taddr, tsize)
+		return f.newDataSectionModel(sect, taddr, tsize)
 	default:
 		panic("unreachable")
 	}
@@ -73,7 +73,7 @@ func (f *File) guessSectType(sect *macho.Section) string {
 	}
 }
 
-func (f *File) NewCodeSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newCodeSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	disasm := f.disasmFunc()
 	if disasm == nil {
 		// TODO warning
@@ -83,7 +83,7 @@ func (f *File) NewCodeSectionModel(sect *macho.Section, taddr uint64, tsize int6
 	return f.newSectionModel(sect, taddr, tsize, disasm, true)
 }
 
-func (f *File) NewDataSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newDataSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 8
 		if len(data) < 8 {
@@ -93,7 +93,7 @@ func (f *File) NewDataSectionModel(sect *macho.Section, taddr uint64, tsize int6
 	}, true)
 }
 
-func (f *File) NewCStringSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newCStringSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		var size int
 		if c := bytes.IndexByte(data, 0); c != -1 {
@@ -108,7 +108,7 @@ func (f *File) NewCStringSectionModel(sect *macho.Section, taddr uint64, tsize i
 	}, false)
 }
 
-func (f *File) NewFloat32SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat32SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 4
 		if len(data) < 4 {
@@ -118,7 +118,7 @@ func (f *File) NewFloat32SectionModel(sect *macho.Section, taddr uint64, tsize i
 	}, false)
 }
 
-func (f *File) NewFloat64SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat64SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 8
 		if len(data) < 8 {
@@ -128,7 +128,7 @@ func (f *File) NewFloat64SectionModel(sect *macho.Section, taddr uint64, tsize i
 	}, false)
 }
 
-func (f *File) NewFloat128SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newFloat128SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 16
 		if len(data) < 16 {
@@ -138,7 +138,7 @@ func (f *File) NewFloat128SectionModel(sect *macho.Section, taddr uint64, tsize 
 	}, false)
 }
 
-func (f *File) NewPointer32SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+func (f *File) newPointer32SectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 4
 		if len(data) < 4 {
