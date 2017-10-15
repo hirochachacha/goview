@@ -104,7 +104,7 @@ func makeSortedSymbols(f *macho.File) SortedSymbols {
 
 	for i := range syms {
 		sym := &syms[i]
-		if sym.Type&N_STAB == 0 && sym.Type&N_TYPE == N_SECT {
+		if sym.Type&N_STAB == 0 && SymbolType(sym.Type&N_TYPE) == N_SECT {
 			ssyms = append(ssyms, struct {
 				*macho.Symbol
 				Index int
@@ -270,60 +270,60 @@ func (f *File) disasmFunc() func(code []byte, pc uint64) (string, int) {
 	return nil
 }
 
-func (f *File) toSymChar(typ uint8, sect uint8, val uint64) byte {
-	if typ&N_STAB != 0 {
+func (f *File) toSymChar(sym *macho.Symbol) byte {
+	if sym.Type&N_STAB != 0 {
 		return '-'
 	}
-	switch typ & N_TYPE {
+	switch SymbolType(sym.Type & N_TYPE) {
 	case N_UNDF:
-		if val == 0 {
-			if typ&N_EXT != 0 {
+		if sym.Value == 0 {
+			if sym.Type&N_EXT != 0 {
 				return 'U'
 			}
 			return 'u'
 		}
-		if typ&N_EXT != 0 {
+		if sym.Type&N_EXT != 0 {
 			return 'C'
 		}
 		return 'c'
 	case N_ABS:
-		if typ&N_EXT != 0 {
+		if sym.Type&N_EXT != 0 {
 			return 'A'
 		}
 		return 'a'
 	case N_SECT:
-		if sect == 0 {
-			if typ&N_EXT != 0 {
+		if sym.Sect == 0 {
+			if sym.Type&N_EXT != 0 {
 				return 'B'
 			}
 			return 'b'
 		}
-		if 0 <= int(sect-1) && int(sect-1) < len(f.Sections) {
-			s := f.Sections[sect-1]
+		if 0 <= int(sym.Sect-1) && int(sym.Sect-1) < len(f.Sections) {
+			s := f.Sections[sym.Sect-1]
 			switch {
 			case s.Seg == "__TEXT" && s.Name == "__text":
-				if typ&N_EXT != 0 {
+				if sym.Type&N_EXT != 0 {
 					return 'T'
 				}
 				return 't'
 			case s.Seg == "__DATA" && s.Name == "__data":
-				if typ&N_EXT != 0 {
+				if sym.Type&N_EXT != 0 {
 					return 'D'
 				}
 				return 'd'
 			}
 		}
-		if typ&N_EXT != 0 {
+		if sym.Type&N_EXT != 0 {
 			return 'S'
 		}
 		return 's'
 	case N_PBUD:
-		if typ&N_EXT != 0 {
+		if sym.Type&N_EXT != 0 {
 			return 'U'
 		}
 		return 'u'
 	case N_INDR:
-		if typ&N_EXT != 0 {
+		if sym.Type&N_EXT != 0 {
 			return 'I'
 		}
 		return 'i'

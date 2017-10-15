@@ -62,11 +62,16 @@ func (w *SymdataWidget) SetSymbol(sym *macho.Symbol, taddend, tsize int64) {
 }
 
 func (w *SymdataWidget) SetModel(typ string) {
+	if typ == "" {
+		w.tree.SetModel(nil)
+		return
+	}
+
 	if w.sym == nil {
 		return
 	}
 
-	if w.sym.Type&N_TYPE != N_SECT {
+	if w.sym.Type&N_STAB != 0 || SymbolType(w.sym.Type&N_TYPE) != N_SECT {
 		return
 	}
 

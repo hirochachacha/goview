@@ -36,7 +36,7 @@ func (f *File) NewSymtabWidget(parent widgets.QWidget_ITF) widgets.QWidget_ITF {
 
 	symChar.ConnectButtonToggled2(func(label string, checked bool) {
 		if checked {
-			symtabModel.SetFilterType(label[0])
+			symtabModel.SetFilterChar(label[0])
 		}
 	})
 

@@ -4,6 +4,7 @@ import (
 	"debug/macho"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/therecipe/qt/core"
@@ -13,7 +14,7 @@ const SymbolItemRole = core.Qt__UserRole + 1
 
 type SymtabModel struct {
 	Symtab       core.QAbstractItemModel_ITF
-	filterType   byte
+	filterChar   byte
 	filterExtern bool
 }
 
@@ -25,30 +26,23 @@ func (f *File) NewSymtabModel() *SymtabModel {
 	symtab.ConnectFilterAcceptsRow(func(sourceRow int, sourceParent *core.QModelIndex) bool {
 		sm := symtab.SourceModel()
 
-		var typ uint8
-		var typDone bool
+		c := byte(sm.Index(sourceRow, 1, sourceParent).Data(int(SymbolItemRole)).ToInt(true))
 
-		if m.FilterExternOnly() {
-			typ = uint8(sm.Index(sourceRow, 1, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
-			typDone = true
-			if typ&N_EXT == 0 {
-				return false
-			}
+		if m.FilterExternOnly() && !unicode.IsUpper(rune(c)) {
+			return false
 		}
 
-		fc := m.FilterType()
+		fc := m.FilterChar()
 		if fc != 0 && fc != '*' {
-			if !typDone {
-				typ = uint8(sm.Index(sourceRow, 1, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
-			}
-			sect := uint8(sm.Index(sourceRow, 2, sourceParent).Data(int(SymbolItemRole)).ToUInt(true))
-			val := sm.Index(sourceRow, 4, sourceParent).Data(int(SymbolItemRole)).ToULongLong(true)
-			c := f.toSymChar(typ, sect, val)
 			if fc != c {
 				fc = byte(unicode.ToLower(rune(fc)))
 				if fc != c {
 					return false
 				}
+			}
+		} else {
+			if c == '-' {
+				return false
 			}
 		}
 
@@ -66,13 +60,13 @@ func (m *SymtabModel) SetFilterName(s string) {
 	m.Symtab.(*core.QSortFilterProxyModel).SetFilterRegExp2(s)
 }
 
-func (m *SymtabModel) SetFilterType(typ byte) {
-	m.filterType = typ
+func (m *SymtabModel) SetFilterChar(c byte) {
+	m.filterChar = c
 	m.Symtab.(*core.QSortFilterProxyModel).InvalidateFilter()
 }
 
-func (m *SymtabModel) FilterType() byte {
-	return m.filterType
+func (m *SymtabModel) FilterChar() byte {
+	return m.filterChar
 }
 
 func (m *SymtabModel) SetFilterExternOnly(b bool) {
@@ -112,20 +106,10 @@ func (m *SymtabModel) newSymtabModel(f *File) core.QAbstractItemModel_ITF {
 
 		switch core.Qt__ItemDataRole(role) {
 		case SymbolItemRole:
-			switch index.Column() {
-			case 0:
+			if index.Column() == 0 {
 				return core.NewQVariant14(sym.Name)
-			case 1:
-				return core.NewQVariant8(uint(sym.Type))
-			case 2:
-				return core.NewQVariant8(uint(sym.Sect))
-			case 3:
-				return core.NewQVariant8(uint(sym.Desc))
-			case 4:
-				return core.NewQVariant10(sym.Value)
 			}
-
-			return core.NewQVariant()
+			return core.NewQVariant7(int(f.toSymChar(sym)))
 		case core.Qt__DisplayRole:
 			var val string
 
@@ -133,9 +117,9 @@ func (m *SymtabModel) newSymtabModel(f *File) core.QAbstractItemModel_ITF {
 			case 0:
 				val = sym.Name
 			case 1:
-				val = f.symTypeString(sym.Type)
+				val = f.symTypeString(sym)
 			case 2:
-				val = f.symSectionString(sym.Sect)
+				val = f.symSectionString(sym)
 			case 3:
 				val = f.symDescString(sym)
 			case 4:
@@ -151,57 +135,91 @@ func (m *SymtabModel) newSymtabModel(f *File) core.QAbstractItemModel_ITF {
 	return symtab
 }
 
-func (f *File) symTypeString(typ uint8) string {
-	var values []string
-	switch {
-	case typ&N_STAB != 0:
-		values = append(values, fmt.Sprintf("%#02x (N_STAB)", typ&N_STAB))
-	case typ&N_TYPE != 0:
-		switch typ & N_TYPE {
-		case N_ABS:
-			values = append(values, fmt.Sprintf("%#02x (N_ABS)", typ&N_TYPE))
-		case N_SECT:
-			values = append(values, fmt.Sprintf("%#02x (N_SECT)", typ&N_TYPE))
-		case N_PBUD:
-			values = append(values, fmt.Sprintf("%#02x (N_PBUD)", typ&N_TYPE))
-		case N_INDR:
-			values = append(values, fmt.Sprintf("%#02x (N_INDR)", typ&N_TYPE))
-		default:
-			values = append(values, fmt.Sprintf("%#02x (?)", typ&N_TYPE))
-		}
-	default:
-		values = append(values, "0x00 (N_UNDF)")
+func (f *File) symTypeString(sym *macho.Symbol) string {
+	if sym.Type&N_STAB != 0 {
+		return fmt.Sprintf("%#02x (N_STAB&%s)", sym.Type, StabType(sym.Type))
 	}
-	if typ&N_PEXT != 0 {
+
+	var values []string
+
+	values = append(values, fmt.Sprintf("%#02x (%s)", sym.Type&N_TYPE, SymbolType(sym.Type&N_TYPE)))
+	if sym.Type&N_PEXT != 0 {
 		values = append(values, "0x10 (N_PEXT)")
 	}
-	if typ&N_EXT != 0 {
+	if sym.Type&N_EXT != 0 {
 		values = append(values, "0x01 (N_EXT)")
 	}
+
 	return strings.Join(values, "\n")
 }
 
-func (f *File) symSectionString(sect uint8) string {
+func (f *File) symSectionString(sym *macho.Symbol) string {
+	if sym.Type&N_STAB != 0 {
+		switch StabType(sym.Type) {
+		case N_SO:
+		case N_OSO:
+			// TODO what's this?
+			return fmt.Sprintf("%d (?)", sym.Sect)
+		case N_FUN:
+		case N_BNSYM:
+		case N_ENSYM:
+		case N_STSYM:
+		case N_GSYM:
+		default:
+			// TODO handle more stab
+		}
+	}
+
 	switch {
-	case sect == 0:
+	case sym.Sect == 0:
 		return "0 (NO_SECT)"
-	case int(sect) <= len(f.Sections):
-		s := f.Sections[sect-1]
-		return fmt.Sprintf("%d (%s,%s)", sect, s.Seg, s.Name)
+	case int(sym.Sect) <= len(f.Sections):
+		s := f.Sections[sym.Sect-1]
+		return fmt.Sprintf("%d (%s,%s)", sym.Sect, s.Seg, s.Name)
 	default:
-		return fmt.Sprintf("%d (?)", sect)
+		return fmt.Sprintf("%d (?)", sym.Sect)
 	}
 }
 
 func (f *File) symDescString(sym *macho.Symbol) string {
 	if sym.Type&N_STAB != 0 {
-		// TODO handle stab
-		return fmt.Sprintf("%#04x", sym.Desc)
+		switch StabType(sym.Type) {
+		case N_SO:
+			if sym.Desc == 0 {
+				return ""
+			}
+		case N_OSO:
+			// TODO what's this?
+			return fmt.Sprintf("%#04x (?)", sym.Desc)
+		case N_FUN:
+			if sym.Desc == 0 {
+				return ""
+			}
+		case N_BNSYM:
+			if sym.Desc == 0 {
+				return ""
+			}
+		case N_ENSYM:
+			if sym.Desc == 0 {
+				return ""
+			}
+		case N_STSYM:
+			if sym.Desc == 0 {
+				return ""
+			}
+		case N_GSYM:
+			if sym.Desc == 0 {
+				return ""
+			}
+		default:
+			// TODO handle more stab
+		}
+		return fmt.Sprintf("%#04x (?)", sym.Desc)
 	}
 	desc := sym.Desc
 	var vals []string
-	if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
-		if f.Type == macho.TypeObj && sym.Type&N_TYPE == N_UNDF && sym.Value != 0 { // common symbol
+	if SymbolType(sym.Type&N_TYPE) == N_UNDF || SymbolType(sym.Type&N_TYPE) == N_PBUD {
+		if f.Type == macho.TypeObj && SymbolType(sym.Type&N_TYPE) == N_UNDF && sym.Value != 0 { // common symbol
 			v := desc & (0x0f << 8)
 			vals = append(vals, fmt.Sprintf("%#04x (alignment: %d)", v, v>>7))
 			desc ^= v
@@ -233,7 +251,7 @@ func (f *File) symDescString(sym *macho.Symbol) string {
 		}
 	}
 	switch {
-	case sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD:
+	case SymbolType(sym.Type&N_TYPE) == N_UNDF || SymbolType(sym.Type&N_TYPE) == N_PBUD:
 		if desc&N_WEAK_REF != 0 {
 			vals = append(vals, "0x0040 (N_WEAK_REF)")
 			desc ^= N_WEAK_REF
@@ -259,7 +277,7 @@ func (f *File) symDescString(sym *macho.Symbol) string {
 			desc ^= N_ALT_ENTRY
 		}
 	case f.Flags&macho.FlagTwoLevel != 0:
-		if sym.Type&N_TYPE == N_UNDF || sym.Type&N_TYPE == N_PBUD {
+		if SymbolType(sym.Type&N_TYPE) == N_UNDF || SymbolType(sym.Type&N_TYPE) == N_PBUD {
 			v := desc & (0xff << 8)
 			switch ord := v >> 8; ord {
 			case SELF_LIBRARY_ORDINAL:
@@ -288,7 +306,7 @@ func (f *File) symDescString(sym *macho.Symbol) string {
 		vals = append(vals, fmt.Sprintf("%#04x (??)", desc))
 	}
 	if len(vals) == 0 {
-		return "0x0000"
+		return ""
 	}
 	return strings.Join(vals, "\n")
 }
@@ -296,16 +314,37 @@ func (f *File) symDescString(sym *macho.Symbol) string {
 func (f *File) symValueString(sym *macho.Symbol) string {
 	switch {
 	case sym.Type&N_STAB != 0:
-		// TODO handle stab
-		return fmt.Sprintf("%#016x", sym.Value)
-	case sym.Type&N_TYPE == N_UNDF:
-		if sym.Value != 0 { // common symbol
-			return fmt.Sprintf("%d (size: %d)", sym.Value, sym.Value)
+		switch StabType(sym.Type) {
+		case N_SO:
+			if sym.Value == 0 {
+				return ""
+			}
+		case N_OSO:
+			return fmt.Sprintf("%#016x (mtime: %s)", sym.Value, time.Unix(int64(sym.Value), 0))
+		case N_FUN:
+			if sym.Name == "" && sym.Sect == 0 {
+				return fmt.Sprintf("%#016x (size: %d)", sym.Value, sym.Value)
+			}
+		case N_BNSYM:
+		case N_ENSYM:
+			return fmt.Sprintf("%#016x (size: %d)", sym.Value, sym.Value)
+		case N_STSYM:
+		case N_GSYM:
+			if sym.Value == 0 {
+				return ""
+			}
+		default:
+			// TODO handle more stab
 		}
-	case sym.Type&N_TYPE == N_PBUD:
+		return fmt.Sprintf("%#016x", sym.Value)
+	case SymbolType(sym.Type&N_TYPE) == N_UNDF:
+		if sym.Value != 0 { // common symbol
+			return fmt.Sprintf("%#016x (size: %d)", sym.Value, sym.Value)
+		}
+	case SymbolType(sym.Type&N_TYPE) == N_PBUD:
 		if sym.Value != 0 { // ?
 			// TODO warning
-			return fmt.Sprintf("%d (?)", sym.Value)
+			return fmt.Sprintf("%#016x (?)", sym.Value)
 		}
 	default:
 		return fmt.Sprintf("%#016x", sym.Value)

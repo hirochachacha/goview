@@ -38,7 +38,7 @@ func (f *File) guessSymType(sym *macho.Symbol) string {
 		return ""
 	}
 
-	if sym.Type&N_TYPE != N_SECT {
+	if sym.Type&N_STAB != 0 || SymbolType(sym.Type&N_TYPE) != N_SECT {
 		return ""
 	}
 

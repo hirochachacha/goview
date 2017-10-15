@@ -161,9 +161,8 @@ func (f *File) newSectionModel(sect *macho.Section, taddr uint64, tsize int64, v
 		m.SetHorizontalHeaderItem(7, gui.NewQStandardItem2("Relocatable"))
 	}
 
-	data := make([]byte, sect.Size)
-	n, err := sect.ReadAt(data, 0)
-	if n != len(data) || err != nil {
+	data, err := sect.Data()
+	if err != nil {
 		// TODO warning
 		return m
 	}

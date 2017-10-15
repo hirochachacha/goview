@@ -1,4 +1,4 @@
-//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,SectionType,LoadCommand,ReferenceType -output types_string.go
+//go:generate stringer -type=CpuType,CpuSubtypeX86,CpuSubtypeX86_64,CpuSubtypePPC,CpuSubtypeARM,CpuSubtypeARM64,Magic,FileType,SectionType,LoadCommand,SymbolType,StabType,ReferenceType -output types_string.go
 package macho_widgets
 
 type CpuType uint32
@@ -289,15 +289,55 @@ const (
 	N_EXT  = 0x01
 )
 
+type SymbolType uint8
+
 const (
-	N_UNDF = 0x0
-	N_ABS  = 0x2
-	N_SECT = 0xe
-	N_PBUD = 0xc
-	N_INDR = 0xa
+	N_UNDF SymbolType = 0x0
+	N_ABS  SymbolType = 0x2
+	N_SECT SymbolType = 0xe
+	N_PBUD SymbolType = 0xc
+	N_INDR SymbolType = 0xa
 )
 
-type SymbolType uint8
+// On latest macOS, STABS are not used as debug symbols,
+// It just record debug map for dsymutil.
+// The semantics which is explained in <mach-o/stab.h> isn't correct anymore.
+// We need to guess the undocumented semantics ourselves.
+
+type StabType uint8
+
+const (
+	N_GSYM    StabType = 0x20
+	N_FNAME   StabType = 0x22
+	N_FUN     StabType = 0x24
+	N_STSYM   StabType = 0x26
+	N_LCSYM   StabType = 0x28
+	N_BNSYM   StabType = 0x2e
+	N_AST     StabType = 0x32
+	N_OPT     StabType = 0x3c
+	N_RSYM    StabType = 0x40
+	N_SLINE   StabType = 0x44
+	N_ENSYM   StabType = 0x4e
+	N_SSYM    StabType = 0x60
+	N_SO      StabType = 0x64
+	N_OSO     StabType = 0x66
+	N_LSYM    StabType = 0x80
+	N_BINCL   StabType = 0x82
+	N_SOL     StabType = 0x84
+	N_PARAMS  StabType = 0x86
+	N_VERSION StabType = 0x88
+	N_OLEVEL  StabType = 0x8A
+	N_PSYM    StabType = 0xa0
+	N_EINCL   StabType = 0xa2
+	N_ENTRY   StabType = 0xa4
+	N_LBRAC   StabType = 0xc0
+	N_EXCL    StabType = 0xc2
+	N_RBRAC   StabType = 0xe0
+	N_BCOMM   StabType = 0xe2
+	N_ECOMM   StabType = 0xe4
+	N_ECOML   StabType = 0xe8
+	N_LENG    StabType = 0xfe
+)
 
 type ReferenceType uint8
 

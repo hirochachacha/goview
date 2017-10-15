@@ -33,7 +33,7 @@ func (f *File) NewAnchorWidget(anchor string) widgets.QWidget_ITF {
 		}
 
 		head := []string{"Name", "Type", "Sect", "Desc", "Value"}
-		row := []string{sym.Name, f.symTypeString(sym.Type), f.symSectionString(sym.Sect), f.symDescString(sym), f.symValueString(sym)}
+		row := []string{sym.Name, f.symTypeString(sym), f.symSectionString(sym), f.symDescString(sym), f.symValueString(sym)}
 
 		h := widgets.NewQTableWidget(nil)
 		h.VerticalHeader().SetVisible(false)
