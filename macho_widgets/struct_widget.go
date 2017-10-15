@@ -21,6 +21,7 @@ func (f *File) NewStructWidget(parent widgets.QWidget_ITF) widgets.QWidget_ITF {
 	strct.ExpandAll()
 
 	attr := f.NewDataView(nil)
+	attr.SetAlternatingRowColors(true)
 
 	strct.ConnectCurrentChanged(func(current *core.QModelIndex, previous *core.QModelIndex) {
 		attr.SetModel(strctModel.AttrTab(current))
