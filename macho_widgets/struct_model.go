@@ -168,8 +168,6 @@ func (f *File) NewStructModel() *StructModel {
 						{"flags", f.sectionFlagsString(sect.Flags, true)},
 					}))
 
-					// TODO use tree instead of table, so relocation will be visible
-
 					s := sect
 
 					m.attrTabFuncs = append(m.attrTabFuncs, func() core.QAbstractItemModel_ITF {
