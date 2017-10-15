@@ -331,7 +331,7 @@ func (p *parser) populateCIEItem(item *gui.QStandardItem, sect *macho.Section, t
 			gui.NewQStandardItem2(fmt.Sprintf("%#016x", sect.Addr+uint64(off))),
 			gui.NewQStandardItem2(fmt.Sprintf("% x", p.scratch[:n])),
 			gui.NewQStandardItem2("Return Address Register"),
-			gui.NewQStandardItem2(fmt.Sprintf("%d", rar)), // TODO DWARF Register Number Mapping ?
+			gui.NewQStandardItem2(p.f.registerString(rar)),
 		})
 		off += int64(n)
 	}
