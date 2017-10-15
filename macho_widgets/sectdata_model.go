@@ -26,6 +26,8 @@ func (f *File) NewSectionModel(typ string, sect *macho.Section, taddr uint64, ts
 		return f.newFloat128SectionModel(sect, taddr, tsize)
 	case "Pointer32":
 		return f.newPointer32SectionModel(sect, taddr, tsize)
+	case "EHFrame":
+		return f.NewEHFrameSectionModel(sect)
 	case "Data":
 		return f.newDataSectionModel(sect, taddr, tsize)
 	default:
@@ -83,6 +85,8 @@ func (f *File) guessSectType(sect *macho.Section) string {
 			return "Float64"
 		case "__literal16":
 			return "Float128"
+		case "__eh_frame":
+			return "EHFrame"
 		}
 	case "__DWARF":
 		switch sect.Name {
@@ -169,6 +173,7 @@ func (f *File) newPointer32SectionModel(sect *macho.Section, taddr uint64, tsize
 	}, false)
 }
 
+// TODO lazy model
 func (f *File) newSectionModel(sect *macho.Section, taddr uint64, tsize int64, valueFunc func(data []byte, addr uint64) (string, int), hasRel bool) core.QAbstractItemModel_ITF {
 	m := gui.NewQStandardItemModel(nil)
 	m.SetHorizontalHeaderItem(0, gui.NewQStandardItem2("Address"))
