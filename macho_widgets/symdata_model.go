@@ -394,7 +394,7 @@ func (f *File) decodeValue(data []byte, typ dwarf.Type, zero bool, label bool) (
 	}
 
 	if label {
-		if strings.ContainsRune(typ.String(), ' ') {
+		if strings.ContainsAny(typ.String(), " *") {
 			if strings.HasPrefix(val, "{") {
 				val = fmt.Sprintf("(%s)%s", typ, val)
 			} else {
