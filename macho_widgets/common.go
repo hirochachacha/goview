@@ -422,3 +422,21 @@ func (f *File) toPointer32(data []byte) string {
 	}
 	return fmt.Sprintf("%#016x%s", addr, suffix)
 }
+
+func (f *File) isZeroSym(sym *macho.Symbol) bool {
+	if sym.Type&N_STAB != 0 || SymbolType(sym.Type&N_TYPE) != N_SECT {
+		return false
+	}
+
+	if 0 < int(sym.Sect) && int(sym.Sect) <= len(f.Sections) {
+		return f.isZeroSect(f.Sections[sym.Sect-1])
+	}
+
+	return false
+}
+
+func (f *File) isZeroSect(sect *macho.Section) bool {
+	styp := SectionType(sect.Flags & SECTION_TYPE)
+
+	return styp == S_ZEROFILL || styp == S_GB_ZEROFILL
+}

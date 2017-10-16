@@ -20,7 +20,7 @@ type SymdataWidget struct {
 func (f *File) NewSymdataWidget(parent widgets.QWidget_ITF) *SymdataWidget {
 	w := new(SymdataWidget)
 
-	labels := []string{"Code", "CString", "Float32", "Float64", "Float128", "Pointer32", "Data"}
+	labels := []string{"Code", "CString", "Float32", "Float64", "Float128", "Pointer32", "Data", "DwarfType"}
 
 	w.bb = f.NewButtonBarWidget(nil, labels)
 	w.tree = f.NewDataView(nil)

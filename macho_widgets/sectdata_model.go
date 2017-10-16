@@ -42,8 +42,6 @@ func (f *File) guessSectType(sect *macho.Section) string {
 	}
 
 	switch SectionType(sect.Flags & SECTION_TYPE) {
-	case S_ZEROFILL:
-		return ""
 	case S_CSTRING_LITERALS:
 		return "CString"
 	case S_4BYTE_LITERALS:
@@ -62,8 +60,6 @@ func (f *File) guessSectType(sect *macho.Section) string {
 		return "Pointer32"
 	case S_MOD_TERM_FUNC_POINTERS:
 		return "Pointer32"
-	case S_GB_ZEROFILL:
-		return ""
 	case S_16BYTE_LITERALS:
 		return "Float128"
 	}
@@ -109,6 +105,16 @@ func (f *File) newCodeSectionModel(sect *macho.Section, taddr uint64, tsize int6
 }
 
 func (f *File) newDataSectionModel(sect *macho.Section, taddr uint64, tsize int64) core.QAbstractItemModel_ITF {
+	if f.isZeroSect(sect) {
+		return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
+			size := 8
+			if len(data) < 8 {
+				size = len(data)
+			}
+			return "zero-fill", size
+		}, false)
+	}
+
 	return f.newSectionModel(sect, taddr, tsize, func(data []byte, addr uint64) (string, int) {
 		size := 8
 		if len(data) < 8 {
