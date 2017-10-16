@@ -168,16 +168,18 @@ func (f *File) NewStructModel() *StructModel {
 						{"flags", f.sectionFlagsString(sect.Flags, true)},
 					}))
 
-					s := sect
+					// TODO enable after implmenting lazy loading
 
-					m.attrTabFuncs = append(m.attrTabFuncs, func() core.QAbstractItemModel_ITF {
-						return f.NewSectionModel(f.guessSectType(s), s, 0, 0)
-					})
+					// s := sect
 
-					sectDataItem := gui.NewQStandardItem2("Data")
-					sectDataItem.SetData(core.NewQVariant7(len(m.attrTabFuncs)), StructItemRole)
+					// m.attrTabFuncs = append(m.attrTabFuncs, func() core.QAbstractItemModel_ITF {
+					// return f.NewSectionModel(f.guessSectType(s), s, 0, 0)
+					// })
 
-					sectItem.AppendRow2(sectDataItem)
+					// sectDataItem := gui.NewQStandardItem2("Data")
+					// sectDataItem.SetData(core.NewQVariant7(len(m.attrTabFuncs)), StructItemRole)
+
+					// sectItem.AppendRow2(sectDataItem)
 					segItem.AppendRow2(sectItem)
 				}
 			}
